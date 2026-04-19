@@ -63,12 +63,17 @@ traider/
 ├── AGENTS.md                 # ← you are here (hub north star)
 ├── README.md                 # quick setup + list of servers
 ├── mcp_servers/
-│   ├── schwab_connector/     # Schwab Trader API (quotes, history,
-│   │                         #   TA, movers, fundamentals, hours,
-│   │                         #   accounts, analytics)
-│   └── yahoo_connector/      # Yahoo Finance alternative — same tool
-│                             #   surface, no account needed, no
-│                             #   brokerage data
+│   ├── schwab_connector/        # Schwab Trader API (quotes, history,
+│   │                            #   TA, movers, fundamentals, hours,
+│   │                            #   accounts, analytics)
+│   ├── yahoo_connector/         # Yahoo Finance alternative — same tool
+│   │                            #   surface, no account needed, no
+│   │                            #   brokerage data
+│   ├── fred_connector/          # FRED (St. Louis Fed) macro data:
+│   │                            #   release calendar, series,
+│   │                            #   metadata
+│   └── fed_calendar_connector/  # FOMC meeting dates scraped from
+│                                #   federalreserve.gov (primary source)
 └── logs/                     # runtime logs (cwd-relative per server)
 ```
 
@@ -144,20 +149,29 @@ servers can have incompatible deps without blocking each other.
 
 ## Known MCP servers
 
-| Server                                             | Purpose                                                            | Details                                                            |
-|----------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------|
-| [`schwab_connector`](mcp_servers/schwab_connector) | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
-| [`yahoo_connector`](mcp_servers/yahoo_connector)   | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+| Server                                                         | Purpose                                                            | Details                                                            |
+|----------------------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------|
+| [`schwab_connector`](mcp_servers/schwab_connector)             | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
+| [`yahoo_connector`](mcp_servers/yahoo_connector)               | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+| [`fred_connector`](mcp_servers/fred_connector)                 | FRED (St. Louis Fed): economic-release calendar, series metadata, observation time-series (CPI, NFP, GDP, PCE, …) | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
+| [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
 
-`schwab_connector` and `yahoo_connector` are **mutually exclusive**
-market-data backends — they expose identical tool names and both bind
-port 8765, so only one runs at a time. The chosen backend is
-controlled by `COMPOSE_PROFILES` in `.env` (for Docker) or by which
-binary the user runs (for host-mode). When a user's prompt implies
-tools that the currently-loaded backend can't serve (e.g.
-`get_accounts` on the Yahoo backend), suggest they switch backends
-rather than trying to work around the gap — see the README's
+**Market-data backends are mutually exclusive.** `schwab_connector`
+and `yahoo_connector` expose identical tool names and both bind port
+8765, so only one runs at a time. The chosen backend is controlled by
+`COMPOSE_PROFILES` in `.env` (for Docker) or by which binary the user
+runs (for host-mode). When a user's prompt implies tools that the
+currently-loaded backend can't serve (e.g. `get_accounts` on the
+Yahoo backend), suggest they switch backends rather than trying to
+work around the gap — see the README's
 [Choosing a market-data backend](../README.md#choosing-a-market-data-backend)
 section for the full capability matrix.
+
+**`fred_connector` and `fed_calendar_connector` are additive.** They
+expose different tool names, bind different ports (8766 / 8767), and
+run alongside either market-data backend. When a question has a macro
+dimension (release calendar, FOMC timing, long-run macro series),
+reach for these even if the primary ask is about an equity — that's
+the "don't be a passive router" rule from the top of this document.
 
 Add new rows here as servers land.

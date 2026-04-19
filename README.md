@@ -19,9 +19,11 @@ traider/
 ├── AGENTS.md                 # hub north star (load into your AI CLI)
 ├── README.md                 # this file
 ├── mcp_servers/
-│   ├── docker-compose.yml    # one service per server (optional)
-│   ├── schwab_connector/     # Schwab Trader API (incl. its Dockerfile)
-│   └── yahoo_connector/      # Yahoo Finance (no account required)
+│   ├── docker-compose.yml        # one service per server (optional)
+│   ├── schwab_connector/         # Schwab Trader API (incl. its Dockerfile)
+│   ├── yahoo_connector/          # Yahoo Finance (no account required)
+│   ├── fred_connector/           # FRED macro data / release calendar
+│   └── fed_calendar_connector/   # FOMC meeting calendar (primary source)
 └── logs/                     # per-server runtime logs (cwd-relative)
 ```
 
@@ -30,14 +32,22 @@ its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 
 ## Available MCP servers
 
-| Server                                             | What it gives the model                                                          | Details                                                            |
-|----------------------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------|
-| [`schwab_connector`](mcp_servers/schwab_connector) | Quotes, OHLCV history, TA-Lib indicators, movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
-| [`yahoo_connector`](mcp_servers/yahoo_connector)   | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+| Server                                                         | What it gives the model                                                          | Details                                                            |
+|----------------------------------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------|
+| [`schwab_connector`](mcp_servers/schwab_connector)             | Quotes, OHLCV history, TA-Lib indicators, movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
+| [`yahoo_connector`](mcp_servers/yahoo_connector)               | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+| [`fred_connector`](mcp_servers/fred_connector)                 | Macro from FRED: economic-release calendar (CPI, NFP, GDP, PCE, retail sales, JOLTS, …), series metadata, and observation time-series. Additive — runs alongside either market-data backend on port 8766. | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
+| [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates + SEP / press-conference flags, scraped directly from federalreserve.gov (primary source). Additive — port 8767. | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
 
 `schwab_connector` and `yahoo_connector` are **mutually exclusive
 alternatives**. Pick one per hub install — see
 [Choosing a market-data backend](#choosing-a-market-data-backend) below.
+
+`fred_connector` and `fed_calendar_connector` are **additive** — they
+expose different tool names and bind different ports, so they run
+alongside whichever market-data backend you picked. Enable them via
+`COMPOSE_PROFILES` (e.g. `COMPOSE_PROFILES=yahoo,fred,fed-calendar`)
+for Docker, or just run the binaries for host mode.
 
 More servers (other brokers, data vendors, news/sentiment, on-chain,
 research tools) will be added over time. The pattern stays the same:

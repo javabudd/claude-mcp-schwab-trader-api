@@ -1,0 +1,21 @@
+[project]
+name = "fed-calendar-connector"
+version = "0.1.0"
+description = "Read-only Federal Reserve meeting-calendar connector exposed as an MCP server"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+fed-calendar-connector = "fed_calendar_connector.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fed_calendar_connector"]

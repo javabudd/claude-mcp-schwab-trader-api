@@ -19,14 +19,21 @@
 #   COMPOSE_PROFILES=schwab   # uses Schwab (needs developer account)
 #   COMPOSE_PROFILES=yahoo    # uses Yahoo Finance (no account needed)
 #
+# Additive servers (fred-connector, fed-calendar-connector) live on
+# different ports and can run alongside either backend. Combine
+# profiles with a comma:
+#
+#   COMPOSE_PROFILES=schwab,fred,fed-calendar
+#
 # Then, from this directory:
 #
 #   docker compose --env-file ../.env up -d
 #
-# Without COMPOSE_PROFILES set, neither backend starts (Compose only
-# launches services whose profile is active). If both profiles are
-# activated by accident, the second service fails to bind 8765 — that's
-# the intended signal that the hub is single-backend by design.
+# Without any market-data profile set, no backend starts (Compose only
+# launches services whose profile is active). If both schwab+yahoo
+# profiles are activated by accident, the second service fails to bind
+# 8765 — that's the intended signal that the hub is single-backend by
+# design.
 #
 # First-time OAuth (Schwab only) is an interactive step:
 #
@@ -76,4 +83,39 @@ services:
       - ../logs:/app/logs
     ports:
       - "8765:8765"
+    restart: unless-stopped
+
+  # Additive: macro / economic-release data from FRED. Runs on 8766 so
+  # it sits alongside whichever market-data backend is active. Needs
+  # FRED_API_KEY in ../.env (free, from fredaccount.stlouisfed.org).
+  fred-connector:
+    profiles: ["fred"]
+    build:
+      context: ./fred_connector
+    image: traider/fred-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      FRED_CONNECTOR_LOG: /app/logs/fred-connector.log
+    volumes:
+      - ../logs:/app/logs
+    ports:
+      - "8766:8766"
+    restart: unless-stopped
+
+  # Additive: FOMC meeting calendar scraped from federalreserve.gov.
+  # Runs on 8767. No credentials.
+  fed-calendar-connector:
+    profiles: ["fed-calendar"]
+    build:
+      context: ./fed_calendar_connector
+    image: traider/fed-calendar-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      FED_CALENDAR_CONNECTOR_LOG: /app/logs/fed-calendar-connector.log
+    volumes:
+      - ../logs:/app/logs
+    ports:
+      - "8767:8767"
     restart: unless-stopped
