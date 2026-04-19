@@ -44,8 +44,17 @@ src/tos_connector/
   schwab_client.py  # OAuth-authenticated HTTP client
   auth.py           # interactive authorization-code flow
   server.py         # FastMCP server exposing get_quote / get_quotes
-pyproject.toml      # deps: mcp, httpx
+pyproject.toml      # deps: mcp, httpx, python-dotenv
 ```
+
+## Don't start the MCP server yourself
+
+The user runs `tos-connector` in a separate terminal. You do **not**
+need to spawn the server, background it, or restart it — assume it is
+already running (or that the user will start it). If a tool call fails
+because the server isn't up, tell the user; don't try to launch it.
+The same applies to `tos-connector auth` — that's an interactive
+browser flow the user runs themselves.
 
 ## Running / developing
 
