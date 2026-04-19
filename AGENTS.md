@@ -74,9 +74,12 @@ traider/
 │   │                            #   metadata
 │   ├── fed_calendar_connector/  # FOMC meeting dates scraped from
 │   │                            #   federalreserve.gov (primary source)
-│   └── sec_edgar_connector/     # SEC EDGAR: filings, Form 4 insider
-│                                #   transactions, 13F holdings, XBRL
-│                                #   company facts
+│   ├── sec_edgar_connector/     # SEC EDGAR: filings, Form 4 insider
+│   │                            #   transactions, 13F holdings, XBRL
+│   │                            #   company facts
+│   └── factor_connector/        # Ken French Data Library: Fama-French
+│                                #   factors, momentum, industry
+│                                #   portfolios (disk-cached)
 └── logs/                     # runtime logs (cwd-relative per server)
 ```
 
@@ -159,6 +162,7 @@ servers can have incompatible deps without blocking each other.
 | [`fred_connector`](mcp_servers/fred_connector)                 | FRED (St. Louis Fed): economic-release calendar, series metadata, observation time-series (CPI, NFP, GDP, PCE, …) | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
 | [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
 | [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR: company filings (10-K/10-Q/8-K), Form 4 insider transactions, 13F institutional holdings, XBRL company facts and cross-sectional frames | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
+| [`factor_connector`](mcp_servers/factor_connector)             | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, and 5–49-industry portfolios (monthly + daily). Disk-cached, no credentials | [README](mcp_servers/factor_connector/README.md) · [AGENTS](mcp_servers/factor_connector/AGENTS.md) |
 
 **Market-data backends are mutually exclusive.** `schwab_connector`
 and `yahoo_connector` expose identical tool names and both bind port
@@ -171,13 +175,15 @@ work around the gap — see the README's
 [Choosing a market-data backend](../README.md#choosing-a-market-data-backend)
 section for the full capability matrix.
 
-**`fred_connector`, `fed_calendar_connector`, and
-`sec_edgar_connector` are additive.** They expose different tool
-names, bind different ports (8766 / 8767 / 8768), and run alongside
-either market-data backend. When a question has a macro dimension
-(release calendar, FOMC timing, long-run macro series) or a
-fundamentals / filings / insider / 13F dimension, reach for these
-even if the primary ask is about an equity — that's the "don't be a
-passive router" rule from the top of this document.
+**`fred_connector`, `fed_calendar_connector`, `sec_edgar_connector`,
+and `factor_connector` are additive.** They expose different tool
+names, bind different ports (8766 / 8767 / 8768 / 8771), and run
+alongside either market-data backend. When a question has a macro
+dimension (release calendar, FOMC timing, long-run macro series), a
+fundamentals / filings / insider / 13F dimension, or a factor-model
+dimension (Fama-French exposures, industry-level context, factor
+attribution), reach for these even if the primary ask is about an
+equity — that's the "don't be a passive router" rule from the top of
+this document.
 
 Add new rows here as servers land.

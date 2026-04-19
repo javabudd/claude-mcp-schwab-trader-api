@@ -62,10 +62,16 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
 
 ## Tier 4 — risk / factor
 
-- [ ] **factor_connector** — Ken French data library (Fama-French
-  factors, industry portfolios). Primary source:
-  `mba.tuck.dartmouth.edu`. Small, slow-moving data — cache with
-  explicit TTL.
+- [x] **factor_connector** — shipped on port 8771. Fama-French 3/5-
+  factor, momentum, short/long-term reversal, and 5/10/12/17/30/38/48/
+  49-industry portfolios at monthly and (where published) daily
+  frequencies. Primary source: `mba.tuck.dartmouth.edu/…/ken.french/ftp/`.
+  No credentials. Disk-cached with a 24 h TTL (`refresh=True` to
+  override per-call). See
+  [mcp_servers/factor_connector/AGENTS.md](mcp_servers/factor_connector/AGENTS.md).
+  `get_dataset(filename)` is the escape hatch for the ~300 datasets
+  outside the curated catalog (sort-based portfolios, international
+  regional factors, etc.).
 
 ## Tier 5 — alt data (lower priority)
 
@@ -91,6 +97,7 @@ simple. Current + planned assignments:
 | 8768 | sec-edgar                  | shipped |
 | 8769 | earnings                   | planned |
 | 8770 | news                       | planned |
+| 8771 | factor                     | shipped |
 | …    | …                          | …       |
 
 Claim the next free port when starting a new server. Update this

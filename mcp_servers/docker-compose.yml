@@ -20,10 +20,10 @@
 #   COMPOSE_PROFILES=yahoo    # uses Yahoo Finance (no account needed)
 #
 # Additive servers (fred-connector, fed-calendar-connector,
-# sec-edgar-connector) live on different ports and can run alongside
-# either backend. Combine profiles with a comma:
+# sec-edgar-connector, factor-connector) live on different ports and
+# can run alongside either backend. Combine profiles with a comma:
 #
-#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar
+#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor
 #
 # Then, from this directory:
 #
@@ -138,4 +138,29 @@ services:
       - ../logs:/app/logs
     ports:
       - "8768:8768"
+    restart: unless-stopped
+
+  # Additive: Ken French Data Library — Fama-French factors, momentum,
+  # industry portfolios. Runs on 8771. No credentials. Fetches ZIP-
+  # wrapped CSVs from mba.tuck.dartmouth.edu and caches them on disk
+  # (24h TTL by default); override the cache location with
+  # FACTOR_CACHE_DIR in ../.env.
+  factor-connector:
+    profiles: ["factor"]
+    build:
+      context: ./factor_connector
+    image: traider/factor-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      FACTOR_CONNECTOR_LOG: /app/logs/factor-connector.log
+      FACTOR_CACHE_DIR: /cache
+    volumes:
+      - ../logs:/app/logs
+      # Disk cache for Ken French ZIPs. Persisting across container
+      # restarts is the whole point of the cache — without this volume
+      # every restart would re-fetch the full set.
+      - ${HOME}/.cache/traider-factor-connector:/cache
+    ports:
+      - "8771:8771"
     restart: unless-stopped
