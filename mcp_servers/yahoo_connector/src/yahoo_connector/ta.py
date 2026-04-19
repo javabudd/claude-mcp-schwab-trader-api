@@ -67,14 +67,23 @@ def _run_one(
     raw = fn(inputs, **kwargs)
 
     output_names = list(fn.output_names)
-    if isinstance(raw, tuple) or len(output_names) > 1:
-        arrays = raw if isinstance(raw, tuple) else (raw,)
+    # TA-Lib's abstract API returns one of: a tuple of 1D arrays
+    # (typical multi-output path), a 2D ndarray of shape
+    # (n_outputs, n_samples) (also seen for multi-output), a 1D array
+    # or a plain list for single-output.
+    if isinstance(raw, tuple):
+        arrays: list[Any] = list(raw)
+    else:
+        arr = np.asarray(raw)
+        arrays = list(arr) if arr.ndim == 2 else [arr]
+
+    if len(output_names) > 1:
         value: Any = {
-            out_name: _nan_to_none(arr)
-            for out_name, arr in zip(output_names, arrays)
+            out_name: _nan_to_none(a)
+            for out_name, a in zip(output_names, arrays)
         }
     else:
-        value = _nan_to_none(raw)
+        value = _nan_to_none(arrays[0])
     return label, value
 
 

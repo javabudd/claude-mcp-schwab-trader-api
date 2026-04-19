@@ -21,9 +21,15 @@ SHELL ["conda", "run", "--no-capture-output", "-n", "traider", "/bin/bash", "-c"
 
 WORKDIR /app
 
-COPY . /app
+# Install Python deps first so code edits don't invalidate this layer.
+# Stub the package tree so the hatchling editable install has a path to
+# link against; the real source is copied in below.
+COPY pyproject.toml /app/
+RUN mkdir -p src/yahoo_connector \
+    && touch src/yahoo_connector/__init__.py \
+    && pip install --no-cache-dir -e .
 
-RUN pip install --no-cache-dir -e .
+COPY src /app/src
 
 EXPOSE 8765
 
