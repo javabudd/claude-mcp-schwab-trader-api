@@ -11,13 +11,13 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("tos_connector.schwab")
+logger = logging.getLogger("schwab_connector.schwab")
 
 SCHWAB_API_BASE = "https://api.schwabapi.com"
 SCHWAB_TOKEN_URL = f"{SCHWAB_API_BASE}/v1/oauth/token"
 SCHWAB_AUTHORIZE_URL = f"{SCHWAB_API_BASE}/v1/oauth/authorize"
 
-DEFAULT_TOKEN_FILE = Path.home() / ".tos-connector" / "schwab-token.json"
+DEFAULT_TOKEN_FILE = Path.home() / ".schwab-connector" / "schwab-token.json"
 
 # Access tokens live ~30min; refresh a bit before expiry so in-flight
 # calls don't race the boundary.
@@ -52,7 +52,7 @@ class SchwabClient:
 
     Tokens are loaded from ``token_file`` and auto-refreshed on expiry.
     If the refresh token is itself invalid (expired or revoked),
-    ``SchwabAuthError`` is raised — re-run ``tos-connector auth``.
+    ``SchwabAuthError`` is raised — re-run ``schwab-connector auth``.
     """
 
     def __init__(
@@ -145,7 +145,6 @@ class SchwabClient:
             "get_price_history symbol=%s period=%s%s frequency=%s%s",
             symbol, period, period_type, frequency, frequency_type,
         )
-        url = f"{self._base_url}/marketdata/v1/pricehistory"
         params: dict[str, Any] = {
             "symbol": symbol,
             "periodType": period_type,
@@ -161,14 +160,102 @@ class SchwabClient:
                 params["endDate"] = end_date
         else:
             params["period"] = period
-        r = self._http.get(url, params=params, headers=self._auth_headers())
-        if r.status_code == 401:
-            logger.info("401 on price history; forcing token refresh")
-            with self._lock:
-                self._tokens = None
-            r = self._http.get(url, params=params, headers=self._auth_headers())
-        r.raise_for_status()
-        return r.json()
+        return self._get_json("/marketdata/v1/pricehistory", params=params)
+
+    def get_movers(
+        self,
+        index: str,
+        sort: str | None = None,
+        frequency: int | None = None,
+    ) -> dict[str, Any]:
+        """Top movers for an index from ``/marketdata/v1/movers/{index}``.
+
+        Args:
+            index: ``$DJI``, ``$COMPX``, ``$SPX``, ``NYSE``, ``NASDAQ``,
+                ``OTCBB``, ``INDEX_ALL``, ``EQUITY_ALL``, ``OPTION_ALL``,
+                ``OPTION_PUT``, ``OPTION_CALL``.
+            sort: ``VOLUME``, ``TRADES``, ``PERCENT_CHANGE_UP``, or
+                ``PERCENT_CHANGE_DOWN``.
+            frequency: Only report movers with at least this many minutes
+                of activity (``0``, ``1``, ``5``, ``10``, ``30``, ``60``).
+        """
+        params: dict[str, Any] = {}
+        if sort is not None:
+            params["sort"] = sort
+        if frequency is not None:
+            params["frequency"] = frequency
+        return self._get_json(f"/marketdata/v1/movers/{index}", params=params)
+
+    def search_instruments(
+        self,
+        symbol: str,
+        projection: str = "symbol-search",
+    ) -> dict[str, Any]:
+        """Instrument search / fundamentals via ``/marketdata/v1/instruments``.
+
+        Args:
+            symbol: Symbol, CUSIP, or regex/description depending on
+                ``projection``.
+            projection: ``symbol-search`` (exact), ``symbol-regex``,
+                ``desc-search`` (description contains), ``desc-regex``,
+                ``search``, or ``fundamental`` (adds fundamentals block).
+        """
+        return self._get_json(
+            "/marketdata/v1/instruments",
+            params={"symbol": symbol, "projection": projection},
+        )
+
+    def get_market_hours(
+        self,
+        markets: list[str] | str,
+        date: str | None = None,
+    ) -> dict[str, Any]:
+        """Market hours from ``/marketdata/v1/markets``.
+
+        Args:
+            markets: One or more of ``equity``, ``option``, ``bond``,
+                ``future``, ``forex``. A list is joined with commas.
+            date: ``YYYY-MM-DD``. Defaults to today server-side.
+        """
+        params: dict[str, Any] = {
+            "markets": ",".join(markets) if isinstance(markets, list) else markets
+        }
+        if date is not None:
+            params["date"] = date
+        return self._get_json("/marketdata/v1/markets", params=params)
+
+    def get_account_numbers(self) -> list[dict[str, Any]]:
+        """Map of plaintext account numbers to the hashed IDs used by
+        every other ``/trader/v1/accounts/*`` endpoint."""
+        data = self._get_json("/trader/v1/accounts/accountNumbers")
+        return data if isinstance(data, list) else []
+
+    def get_accounts(self, include_positions: bool = False) -> list[dict[str, Any]]:
+        """All accounts for the authorized user.
+
+        Args:
+            include_positions: If ``True``, each account includes its
+                ``positions`` array (cost basis, quantities, market
+                value, unrealized P&L).
+        """
+        params: dict[str, Any] = {}
+        if include_positions:
+            params["fields"] = "positions"
+        data = self._get_json("/trader/v1/accounts", params=params)
+        return data if isinstance(data, list) else []
+
+    def get_account(
+        self,
+        account_hash: str,
+        include_positions: bool = False,
+    ) -> dict[str, Any]:
+        """Single account by hashed ID (from :meth:`get_account_numbers`)."""
+        params: dict[str, Any] = {}
+        if include_positions:
+            params["fields"] = "positions"
+        return self._get_json(
+            f"/trader/v1/accounts/{account_hash}", params=params
+        )
 
     def close(self) -> None:
         self._http.close()
@@ -176,13 +263,21 @@ class SchwabClient:
     # ----- token / auth internals --------------------------------------
 
     def _fetch_quotes(self, symbols: list[str]) -> dict[str, Any]:
-        url = f"{self._base_url}/marketdata/v1/quotes"
-        params = {"symbols": ",".join(symbols)}
+        return self._get_json(
+            "/marketdata/v1/quotes", params={"symbols": ",".join(symbols)}
+        )
+
+    def _get_json(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """GET ``path`` with bearer auth; on 401, drop the cached token and
+        retry once before raising."""
+        url = f"{self._base_url}{path}"
         r = self._http.get(url, params=params, headers=self._auth_headers())
         if r.status_code == 401:
-            # Access token rejected despite local expiry heuristic. Drop
-            # the cached token and try once more.
-            logger.info("401 on quote fetch; forcing token refresh")
+            logger.info("401 on %s; forcing token refresh", path)
             with self._lock:
                 self._tokens = None
             r = self._http.get(url, params=params, headers=self._auth_headers())
@@ -204,7 +299,7 @@ class SchwabClient:
             if not self._token_file.exists():
                 raise SchwabAuthError(
                     f"No tokens at {self._token_file}. "
-                    "Run: tos-connector auth"
+                    "Run: schwab-connector auth"
                 )
             with self._token_file.open("r", encoding="utf-8") as f:
                 self._tokens = json.load(f)
@@ -240,7 +335,7 @@ class SchwabClient:
                 r.status_code, r.text[:500],
             )
             raise SchwabAuthError(
-                "Token refresh failed. Re-run: tos-connector auth"
+                "Token refresh failed. Re-run: schwab-connector auth"
             )
         body = r.json()
         tokens = {

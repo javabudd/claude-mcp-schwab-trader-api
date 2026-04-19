@@ -1,6 +1,6 @@
 """Interactive OAuth 2.0 authorization-code flow for the Schwab API.
 
-Run via ``tos-connector auth`` (or ``python -m tos_connector auth``).
+Run via ``schwab-connector auth`` (or ``python -m schwab_connector auth``).
 Writes the resulting access/refresh tokens to the token file consumed
 by ``SchwabClient``.
 """
@@ -21,7 +21,7 @@ from .schwab_client import (
     SCHWAB_TOKEN_URL,
 )
 
-logger = logging.getLogger("tos_connector.auth")
+logger = logging.getLogger("schwab_connector.auth")
 
 
 def run_auth_flow() -> None:

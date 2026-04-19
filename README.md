@@ -1,233 +1,71 @@
-# tos-connector
+# ai-trader
 
-Read-only Schwab Trader API bridge exposed as an MCP server for Claude.
-See [AGENTS.md](AGENTS.md) for how the code is organized and what to
-watch out for.
+A hub for using an AI CLI (Claude Code, OpenCode, Cowork, Gemini CLI,
+Cursor, Aider, …) to gain financial insights and help make trading
+decisions.
 
-## What this MCP server can do
+`ai-trader` itself doesn't trade. It's a **collection of MCP servers**
+that expose read-only market data, account data, and analytics as
+tools the model can call. You keep every decision; the model fetches,
+compiles, parses, and explains.
 
-Once the server is running and Claude is connected, Claude gets four
-tools. All are **read-only** — no orders, no alerts, no writes.
+See [AGENTS.md](AGENTS.md) for the hub's north star — what belongs
+here, what doesn't, and how to navigate the per-server docs.
 
-### `get_quote(symbol, field="LAST")`
+## Layout
 
-A single snapshot field for one symbol. Handy for a quick "what's SPY
-trading at right now."
-
-- `symbol` — any symbol Schwab accepts: equities (`AAPL`), ETFs
-  (`SPY`), futures (`/ES`), indices (`$SPX`), or 21-char OSI options
-  (`SPY   250321C00500000`).
-- `field` — either a friendly alias or a native Schwab key. Aliases:
-  `LAST`, `BID`, `ASK`, `VOLUME`, `MARK`, `OPEN`, `HIGH`, `LOW`,
-  `CLOSE`, `NET_CHANGE`, `PERCENT_CHANGE`, `BID_SIZE`, `ASK_SIZE`.
-  Anything else is passed straight through to the Schwab quote object
-  (e.g. `lastPrice`, `quoteTime`, `52WeekHigh`).
-
-Returns a string (empty if the field isn't present).
-
-### `get_quotes(symbols, fields=None)`
-
-Batched version of `get_quote`. Use this whenever Claude needs more
-than one symbol or more than one field — one HTTP call instead of N.
-
-- `symbols` — list of tickers.
-- `fields` — list of aliases or native keys. If omitted, each symbol's
-  entry is the full Schwab `quote` object (useful when Claude wants
-  to browse what's available).
-
-Returns `{symbol: {field: value}}`.
-
-### `get_price_history(symbol, period_type="year", period=1, frequency_type="daily", frequency=1, ...)`
-
-OHLCV candles for charting or lookback analysis. Defaults give **one
-year of daily bars** (the "yearly chart, daily candles" case).
-
-Response shape is Schwab's native format:
-
-```json
-{
-  "symbol": "SPY",
-  "empty": false,
-  "candles": [
-    {"open": 512.3, "high": 513.9, "low": 511.0,
-     "close": 513.2, "volume": 78234100, "datetime": 1708992000000}
-  ]
-}
+```
+ai-trader/
+├── AGENTS.md                 # hub north star (load into your AI CLI)
+├── README.md                 # this file
+├── mcp_servers/
+│   └── schwab_connector/     # Schwab Trader API
+└── logs/                     # per-server runtime logs (cwd-relative)
 ```
 
-`datetime` is epoch milliseconds (UTC).
+Each server under `mcp_servers/` is its own installable package with
+its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 
-Valid `period_type` / `period` / `frequency_type` / `frequency`
-combinations — Schwab rejects the rest with a 400:
+## Available MCP servers
 
-| `period_type` | `period`              | `frequency_type`          | `frequency`       |
-|---------------|-----------------------|---------------------------|-------------------|
-| `day`         | 1, 2, 3, 4, 5, 10     | `minute`                  | 1, 5, 10, 15, 30  |
-| `month`       | 1, 2, 3, 6            | `daily`, `weekly`         | 1                 |
-| `year`        | 1, 2, 3, 5, 10, 15, 20| `daily`, `weekly`, `monthly` | 1              |
-| `ytd`         | 1                     | `daily`, `weekly`         | 1                 |
+| Server                                             | What it gives the model                                                          | Details                                                            |
+|----------------------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------|
+| [`schwab_connector`](mcp_servers/schwab_connector) | Quotes, OHLCV history, TA-Lib indicators, movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
 
-You can also pass `start_date` / `end_date` as epoch milliseconds —
-they override `period` when set. `need_extended_hours_data=True`
-includes pre/post-market candles; `need_previous_close=True` adds the
-prior session's close to the response.
+More servers (other brokers, data vendors, news/sentiment, on-chain,
+research tools) will be added over time. The pattern stays the same:
+one subdirectory per server, independently installable.
 
-### `run_technical_analysis(symbol, indicators, ...)`
+## Quickstart
 
-Runs one or more [TA-Lib](https://ta-lib.org/) indicators over the
-OHLCV candles for a symbol. Price-history parameters (`period_type`,
-`period`, `frequency_type`, `frequency`, `start_date`, `end_date`,
-`need_extended_hours_data`) behave exactly like `get_price_history`,
-so the same valid-combination matrix applies.
+You'll install one or more MCP servers, start each in its own
+terminal, and point your AI CLI at them. Each server's own `README.md`
+has the full setup — the steps below are the short path for the
+Schwab connector.
 
-- `indicators` — list of spec dicts. Each dict **must** have `name`
-  (a TA-Lib function name; case-insensitive). Any other keys are
-  forwarded to TA-Lib as keyword arguments. Use `label` to rename
-  the output entry if you want the same indicator with different
-  params (e.g. SMA_20 *and* SMA_50 in one call).
-- `tail` — optional int. Trim each returned series (and the matching
-  `datetime` entries) to the last N points. Leave unset for the full
-  aligned history.
+### 1. Conda env (shared across all servers)
 
-```json
-{
-  "symbol": "SPY",
-  "indicators": [
-    {"name": "SMA", "label": "SMA_20", "timeperiod": 20},
-    {"name": "SMA", "label": "SMA_50", "timeperiod": 50},
-    {"name": "RSI", "timeperiod": 14},
-    {"name": "MACD", "fastperiod": 12, "slowperiod": 26, "signalperiod": 9},
-    {"name": "BBANDS", "timeperiod": 20, "nbdevup": 2, "nbdevdn": 2}
-  ],
-  "tail": 5
-}
-```
-
-Response shape:
-
-```json
-{
-  "symbol": "SPY",
-  "datetime": [1712275200000, 1712361600000, "..."],
-  "indicators": {
-    "SMA_20": [517.2, 517.8, "..."],
-    "SMA_50": [510.4, 510.9, "..."],
-    "RSI": [61.2, 58.7, "..."],
-    "MACD": {"macd": [...], "macdsignal": [...], "macdhist": [...]},
-    "BBANDS": {"upperband": [...], "middleband": [...], "lowerband": [...]}
-  }
-}
-```
-
-Warm-up slots at the start of a series are `null` (TA-Lib NaN).
-Multi-output indicators (MACD, BBANDS, STOCH, …) come back as a dict
-keyed by TA-Lib's output names. Any TA-Lib function works — common
-picks: `SMA`, `EMA`, `WMA`, `RSI`, `MACD`, `BBANDS`, `ATR`, `ADX`,
-`STOCH`, `STOCHRSI`, `OBV`, `CCI`, `MFI`, `AROON`.
-
-> **Install note.** TA-Lib is a C library with a Python wrapper. On
-> conda: `conda install -c conda-forge ta-lib`. On other systems,
-> install the C library first (Homebrew: `brew install ta-lib`; Debian:
-> `apt install libta-lib0 libta-lib-dev`) and then `pip install
-> TA-Lib` picks it up.
-
-### Things worth knowing
-
-- **Freshness.** Quotes are real-time during RTH (or as close as the
-  Schwab API gets). Outside RTH, `lastPrice` may be stale — pre/post
-  fields live under different keys in the quote JSON, so ask for them
-  explicitly.
-- **Options.** Use the 21-character OSI format
-  (`SPY   250321C00500000`, with padded spaces), not dotted TOS
-  notation.
-- **Rate limits.** Schwab enforces per-endpoint quotas. If you hit
-  one, the tool raises (HTTP 429) — the server won't silently retry.
-- **Token expiry.** Access tokens auto-refresh. Refresh tokens die
-  after ~7 days of inactivity — if you see `SchwabAuthError`, re-run
-  `tos-connector auth`.
-
-## Setup
-
-### 1. Install conda
-
-If you don't already have it, install **Miniforge** (community conda
-distribution, permissive license, fast solver):
-
-- macOS / Linux / WSL:
-  ```bash
-  curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-  bash Miniforge3-$(uname)-$(uname -m).sh
-  ```
-- Windows: download the installer from
-  <https://github.com/conda-forge/miniforge/releases/latest> and run it.
-
-Miniconda works fine too if you already have it —
-<https://docs.conda.io/en/latest/miniconda.html>.
-
-Restart your shell (or `source ~/.bashrc` / `source ~/.zshrc`) so
-`conda` is on your PATH.
-
-### 2. Create the `tos` environment
-
-The project always uses an env named `tos`, pinned to Python 3.13:
+All Python in this repo uses a conda env named `tos`, pinned to
+Python 3.13:
 
 ```bash
 conda create -n tos python=3.13
 conda activate tos
 ```
 
-Every subsequent command in this repo (including `pip install`,
-`tos-connector`, any test runner) assumes this env is active.
-
-### 3. Install the package
+### 2. Install the server(s) you want
 
 ```bash
 conda activate tos
-pip install -e .
+pip install -e ./mcp_servers/schwab_connector
 ```
 
-### 4. Register a Schwab developer app
+### 3. Configure credentials
 
-The connector authenticates as an OAuth app you own on the Schwab
-developer portal. You need to create that app once before anything
-else works.
-
-1. **Create a developer account** at <https://developer.schwab.com>
-   and sign in. Your Schwab brokerage login works here.
-2. **Create a new app** from the Dashboard. You'll be asked for:
-   - **App name** and **description** — free text, shown only to you.
-   - **API products** — select **Accounts and Trading Production**
-     and **Market Data Production**. (The connector is read-only, but
-     the Trader product is what exposes `/marketdata/v1/quotes`.)
-   - **Callback URL** — must be HTTPS and must match
-     `SCHWAB_CALLBACK_URL` exactly, including trailing slash.
-     `https://127.0.0.1` is the simplest choice and is what the auth
-     flow assumes by default.
-3. **Submit for approval.** New apps start in `Approved - Pending`
-   and have to flip to `Ready For Use` before the keys work. This
-   usually takes a few minutes to a couple of days; you can't
-   shortcut it. If `tos-connector auth` returns `invalid_client`,
-   the app is still pending.
-4. **Copy the App Key and Secret** from the app's detail page once it
-   is `Ready For Use`. The key is public-ish (it's the OAuth
-   `client_id`); the secret must be kept private — don't paste it
-   into chat, logs, or anything committed to git.
-5. **Rotating credentials.** If you regenerate the secret in the
-   portal, existing tokens are invalidated — you'll need to re-run
-   `tos-connector auth`.
-
-### 5. Configure Schwab credentials
-
-Either export the vars directly:
-
-```bash
-export SCHWAB_APP_KEY=...
-export SCHWAB_APP_SECRET=...
-export SCHWAB_CALLBACK_URL=https://127.0.0.1   # must match the app reg
-```
-
-…or drop them in a `.env` file at the repo root (gitignored, loaded
-automatically on startup):
+Drop them in a `.env` at the repo root (gitignored, loaded on
+startup). For the Schwab connector, see its
+[README](mcp_servers/schwab_connector/README.md#5-configure-schwab-credentials)
+for the app-registration walkthrough.
 
 ```
 SCHWAB_APP_KEY=...
@@ -235,39 +73,36 @@ SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 ```
 
-### 6. Authorize once, then run the server
+### 4. One-time auth, then run the server
 
 ```bash
-tos-connector auth             # browser flow, paste redirected URL
-tos-connector                  # start the MCP server on stdio
+schwab-connector auth    # one-time browser OAuth flow
+schwab-connector         # starts the MCP server on stdio
 ```
 
-Or expose it over HTTP for remote MCP clients:
+Or over HTTP for remote MCP clients:
 
 ```bash
-tos-connector --transport streamable-http --port 8765
+schwab-connector --transport streamable-http --port 8765
 ```
 
-### `tos-connector auth` vs `tos-connector` — when to run which
+### 5. Wire it into your AI CLI
 
-- **`tos-connector auth`** is the interactive OAuth bootstrap. It
-  opens your browser, you log into Schwab, and you paste the redirect
-  URL back into the terminal. It writes `schwab-token.json` (access +
-  refresh token) and exits. Run it:
-  - the **first time** you set up the repo;
-  - any time **`tos-connector` prints `SchwabAuthError`** (the
-    refresh token is dead — happens after ~7 days of no use, or if
-    you revoke the app);
-  - after **rotating** `SCHWAB_APP_KEY` / `SCHWAB_APP_SECRET`, since
-    tokens are bound to the app registration.
-- **`tos-connector`** (no subcommand) starts the MCP server. It reuses
-  the token file written by `auth` and refreshes the access token on
-  its own as needed. This is the one Claude actually talks to — leave
-  it running in a terminal while you use the connector. You do **not**
-  need to re-run `auth` each session; only when the refresh token
-  itself has expired.
+Point your MCP client at the running server (stdio or HTTP). The
+model will then see every tool the server exposes. From there, ask
+questions and let the model chain tools — the per-server README has
+worked examples.
 
-Tokens are persisted to `~/.tos-connector/schwab-token.json`
-(overridable via `SCHWAB_TOKEN_FILE`). Access tokens auto-refresh;
-refresh tokens expire ~7 days and require re-running
-`tos-connector auth`.
+## What this hub will and won't do
+
+- **Will.** Fetch, align, and compute on market data. Explain what
+  the numbers say. Flag regime shifts, correlations, mean-reversion
+  setups, realized-vol outliers, fundamental outliers — all of it
+  read-only, all of it for the user to act on.
+- **Won't.** Place orders, create alerts, make writes to any
+  brokerage or external service. Ship "auto-trader" features.
+  Silently retry past a 429 or paper over a failing dependency.
+  Store credentials in the repo or in logs.
+
+See [AGENTS.md](AGENTS.md) for the full set of hub-wide constraints
+(which every MCP server in this repo inherits).

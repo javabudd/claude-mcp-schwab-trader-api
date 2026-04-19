@@ -1,165 +1,121 @@
-# AGENTS.md
+# AGENTS.md — ai-trader
 
-Guidance for AI coding agents working in this repo.
+**Read this first.** This is your north star when this repo is loaded
+into an AI CLI (Claude Code, OpenCode, Cowork, Gemini CLI, Cursor,
+Aider, …). It tells you what `ai-trader` is, what it is *not*, and
+how to find the details for any individual capability without
+re-deriving them.
 
-## What this is
+## What this repo is
 
-`tos-connector` (name kept for continuity — it no longer talks to TOS)
-is a read-only bridge between Claude (via MCP) and the **Schwab Trader
-API**. It exposes quote lookups, historical OHLCV candles, and TA-Lib
-technical-analysis indicators over those candles as MCP tools so
-Claude can call them like any other tool. Pure Python over HTTP —
-cross-platform, no COM, no desktop app required.
+`ai-trader` is a **central hub for using an AI CLI to gain financial
+insights and help make trading decisions**. It is not a bot, not a
+broker, and not a standalone tool — it is a collection of **MCP
+servers** that the user starts alongside an AI CLI so the model can:
 
-The user-facing tool surface (names, arguments, valid parameter
-combinations) is documented in [README.md](README.md) under "What this
-MCP server can do". If you add or change a tool, update that section —
-it's what Claude clients read to learn what's available.
+- **Fetch** market data, account data, and fundamentals from brokerage
+  and data-vendor APIs.
+- **Compile** that data into the shapes analytics need (aligned candle
+  series, joined time windows, portfolio-weighted aggregates).
+- **Parse** and compute on it — technical-analysis indicators,
+  return/risk metrics, correlation matrices, regime classifiers,
+  pair-spread statistics, etc.
 
-### Why not the TOS RTD path anymore
+Everything the hub ships is **read-only**. No order entry, no alert
+creation, no writes to external systems. The premise is that the user
+stays in the loop for every decision — the model is here to fetch,
+compute, and explain, not to trade.
 
-The repo originally tried to reach TOS Desktop's RTD COM server
-(`Tos.RTD`, the interface behind Excel's `=RTD("tos.rtd",…)` formulas).
-That path is abandoned. The blocking issue: `IRTDUpdateEvent` is a
-dual COM interface, and pywin32 can only synthesize a real vtable for
-a dual interface from a registered type library (Office's `MSO.DLL`
-ships it; plain Windows does not). Without that TLB, every call path
-into our Python callback eventually hits undefined vtable memory and
-`Py_FatalError`s the process. Investigating that took a lot of time —
-don't re-open it without (a) Office installed and (b) a plan to use
-`win32com.universal.RegisterInterfaces`.
+## How the hub is organized
 
-## Hard constraints
-
-- **Read-only scope.** No order entry, no alert creation, no writes.
-  The Trader API can do writes — we deliberately don't. If a feature
-  request implies writes, push back.
-- **OAuth required.** Schwab's API is OAuth 2.0 (authorization code
-  flow). Tokens are refreshed, not re-issued; treat the refresh token
-  as sensitive and keep it out of logs.
-- **Rate limits apply.** Schwab publishes per-endpoint quotas (see the
-  developer portal). Don't add retry-storm fallbacks that mask a
-  throttle — surface 429s.
-
-## Layout
+The repo is a collection of MCP servers under `mcp_servers/`. Each
+server is independently installable and independently runnable:
 
 ```
-src/tos_connector/
-  __init__.py       # re-exports SchwabClient / SchwabAuthError
-  __main__.py       # dispatches "auth" subcommand vs. server
-  schwab_client.py  # OAuth-authenticated HTTP client
-  auth.py           # interactive authorization-code flow
-  ta.py             # TA-Lib indicator runner over candle lists
-  server.py         # FastMCP server: get_quote / get_quotes /
-                    #   get_price_history / run_technical_analysis
-pyproject.toml      # deps: mcp, httpx, python-dotenv, numpy, TA-Lib
+ai-trader/
+├── AGENTS.md                 # ← you are here (hub north star)
+├── README.md                 # quick setup + list of servers
+├── mcp_servers/
+│   └── schwab_connector/     # Schwab Trader API (quotes, history,
+│                             #   TA, movers, fundamentals, hours,
+│                             #   accounts, analytics)
+└── logs/                     # runtime logs (cwd-relative per server)
 ```
 
-## Don't start the MCP server yourself
+More servers will be added over time (other brokers, data vendors,
+news/sentiment sources, on-chain feeds, research tools, etc.). The
+pattern is always the same: one subdirectory per server, each with its
+own `pyproject.toml`, `AGENTS.md`, `README.md`, and `src/<package>/`.
 
-The user runs `tos-connector` in a separate terminal. You do **not**
-need to spawn the server, background it, or restart it — assume it is
-already running (or that the user will start it). If a tool call fails
-because the server isn't up, tell the user; don't try to launch it.
-The same applies to `tos-connector auth` — that's an interactive
-browser flow the user runs themselves.
+## Where to look when a user asks about a capability
 
-## Running / developing
+1. **Check which server owns it.** Look at `mcp_servers/*/README.md` —
+   each server's README begins with a "What this MCP server can do"
+   section listing every tool it exposes.
+2. **Then check that server's `AGENTS.md`** for the constraints,
+   gotchas, and conventions specific to it (OAuth flows, symbology,
+   rate limits, warmup behavior, C-library dependencies, …).
+3. **Only drop into the code** for the specifics of an implementation
+   you're about to change.
 
-**All Python commands in this repo run inside the `tos` conda
-environment.** Activate it before running anything — `pip`,
-`python`, `tos-connector`, test runners, one-off REPLs, everything.
-The env is always named `tos` (Python 3.13); see `README.md` for
-creation instructions. If you see an `ImportError` or
-`command not found`, the first thing to check is whether the env is
-active.
+Do *not* generalize constraints from one server to another. A rule
+that holds for the Schwab connector (e.g. "treat the refresh token as
+sensitive") may not apply — or may apply differently — to a future
+data-vendor server that uses a static API key.
 
-```bash
-conda activate tos
+## Hub-wide hard constraints
 
-pip install -e .
+These apply to **every** MCP server in this repo. Per-server
+`AGENTS.md` files add more on top, but never relax these.
 
-export SCHWAB_APP_KEY=...
-export SCHWAB_APP_SECRET=...
-export SCHWAB_CALLBACK_URL=https://127.0.0.1   # must match the app reg
+- **Read-only.** No server in this hub performs writes to an external
+  system (orders, alerts, account changes, posts, …). If a feature
+  request implies writes, push back and discuss scope before
+  implementing.
+- **Secrets out of the repo and out of logs.** OAuth tokens, API keys,
+  and brokerage credentials live in `.env` (gitignored) or the user's
+  home dir. Never print them, never commit them, never include them
+  in error messages or MCP tool responses.
+- **Surface rate limits.** If a provider returns HTTP 429, the
+  corresponding tool should raise — not silently retry in a loop. The
+  user and the model need to see throttles immediately so they can
+  back off intelligently.
+- **No silent fallbacks that change the numbers.** If a C library,
+  indicator, or data source is unavailable, error out. Do not
+  substitute a pure-Python reimplementation or a cached/stale value
+  and pretend it's equivalent — the downstream decisions depend on
+  the numbers being what they claim to be.
 
-tos-connector auth                              # one-time browser flow
-tos-connector                                   # MCP server on stdio
-tos-connector --transport streamable-http --port 8765   # or over HTTP
+## Don't start MCP servers yourself
+
+The user runs each MCP server in a separate terminal and wires it
+into their AI CLI themselves. As the model, you should assume the
+servers are already running (or that the user will start them). If a
+tool call fails because a server isn't up, say so and stop — do not
+try to spawn, background, or restart the server from inside a tool
+call. The same applies to any interactive OAuth flows a server
+exposes (e.g. `schwab-connector auth`).
+
+## Adding a new MCP server
+
+When adding a new MCP server to the hub, mirror the `schwab_connector`
+layout:
+
+```
+mcp_servers/<name>/
+├── AGENTS.md          # per-server constraints and gotchas
+├── README.md          # tool surface + setup
+├── pyproject.toml     # independent deps and console script
+└── src/<name>/        # package
 ```
 
-Tokens are persisted to the file referenced by `SCHWAB_TOKEN_FILE`
-(default `~/.tos-connector/schwab-token.json`, mode 0600).
-`SchwabClient` auto-refreshes the access token on expiry; if the
-refresh token itself is dead, it raises `SchwabAuthError` — the user
-must re-run `tos-connector auth`.
+Install independently (`pip install -e ./mcp_servers/<name>`) so
+servers can have incompatible deps without blocking each other.
 
-## Server logs
+## Known MCP servers
 
-The server writes a rotating log to `logs/server.log` (relative to
-cwd). Override with `--log-file PATH` or `TOS_CONNECTOR_LOG`.
+| Server                                             | Purpose                                                            | Details                                                            |
+|----------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------|
+| [`schwab_connector`](mcp_servers/schwab_connector) | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
 
-MCP servers are typically spawned as subprocesses (stdio transport) or
-run detached (HTTP), so stdout/stderr often aren't visible to the
-agent calling tools. The log file is the reliable place to read what
-the server did. **When a tool call fails, read `logs/server.log`
-before asking the user for the traceback** — tool handlers wrap their
-bodies in `logger.exception(...)`, so the full traceback lands in the
-file.
-
-Captured log sources: `tos_connector`, `mcp`, `uvicorn`, and `httpx`
-(so you can see the outbound API calls and response statuses).
-Rotation: 5 MB × 3 backups.
-
-## Things that will bite you
-
-- **Token expiry.** Schwab access tokens expire in ~30 minutes and
-  refresh tokens in ~7 days. After a lapse, the user has to re-run
-  `tos-connector auth`. Don't silently swallow "invalid refresh
-  token" — surface it.
-- **Options symbology.** Schwab expects the 21-character OSI format
-  (e.g. `SPY   250321C00500000`), not dotted TOS notation. Equities
-  and futures (`/ES`) work as-is.
-- **Market hours.** Outside RTH, `lastPrice` may be stale; pre/post
-  session fields live under different keys in the quote JSON.
-- **Sandbox vs production.** The developer portal offers a sandbox
-  environment. If you set `SCHWAB_BASE_URL`, make sure it points where
-  you intend.
-- **Price history parameter combos.** Schwab's `/pricehistory` endpoint
-  rejects most `periodType` / `frequencyType` / `period` / `frequency`
-  combinations with a terse 400. The valid matrix is in the README.
-  If you're tempted to add client-side validation, don't — the
-  response is specific enough, and the matrix is subject to change on
-  Schwab's side.
-- **Candle timestamps are epoch ms UTC.** When formatting for display
-  or computing session boundaries, remember to convert to the right
-  tz (Schwab intraday data is US equities — `America/New_York`).
-- **TA-Lib is a C dep.** `pip install TA-Lib` needs the native
-  library present first (`conda install -c conda-forge ta-lib`,
-  `brew install ta-lib`, or the distro package). If the wrapper
-  imports but returns garbage, check that the C lib version matches
-  what the wheel was built against. Don't silently fall back to a
-  pure-Python reimplementation — the indicator outputs won't match
-  what users expect from TA-Lib.
-- **TA-Lib warmup NaNs.** Indicators need history before producing a
-  value (SMA(20) returns NaN for the first 19 points). `ta.py`
-  converts those to JSON `null`; don't strip them — the positions
-  have to stay aligned with `datetime`.
-- **Series size.** `run_technical_analysis` returns one value per
-  candle per indicator by default. A year of 1-minute bars × several
-  indicators can blow up the response. Push callers toward `tail` or
-  a coarser frequency when they don't actually need the full history.
-
-## What not to do
-
-- Don't store OAuth tokens in the repo, in env files committed to git,
-  or in log output.
-- Don't introduce an ORM, a database, or a queue. This is a thin HTTP
-  client plus an MCP surface — keep it thin.
-- Don't add write operations. The Trader API supports them; this
-  connector does not, by policy.
-- Don't paper over rate limits with exponential-retry loops. One retry
-  for a transient 5xx is fine; 429s should propagate.
-- Don't re-attempt the RTD COM path without Office's MSO TLB and a
-  concrete plan for `win32com.universal`. See the "Why not the TOS
-  RTD path" section above.
+Add new rows here as servers land.
