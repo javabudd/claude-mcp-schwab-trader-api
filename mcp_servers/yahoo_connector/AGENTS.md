@@ -63,6 +63,21 @@ These tools exist in the surface for parity but raise
   session-hours endpoint. Rather than hand-rolling a schedule that
   could disagree with a real exchange holiday, we raise.
 
+And one tool works but with materially lower fidelity than Schwab:
+
+- **`get_option_chain`** — builds a Schwab-shaped chain from
+  `Ticker.option_chain`, but yfinance does not publish Greeks
+  (`delta`/`gamma`/`theta`/`vega`/`rho` are `null`), quotes are
+  delayed ~15 minutes, and illiquid strikes can show stale or zero
+  bid/ask. bid/ask *sizes* aren't exposed at all, so the client
+  emits `0`. Every response carries a top-level
+  `"dataQualityWarning"` key so callers can see this without digging.
+  Only `strategy="SINGLE"` is supported; strategies and the
+  `ANALYTICAL`-only numeric overrides raise
+  `YahooCapabilityError`. `get_option_expirations` returns just the
+  date list — `expirationType` / `settlementType` / `optionRoots` /
+  `standard` are `null` because Yahoo doesn't publish them.
+
 These tools work but behave differently than Schwab:
 
 - **`get_movers`** — Yahoo's screeners are US-market-wide rather than
@@ -163,6 +178,15 @@ traceback**; tool handlers wrap their bodies in `logger.exception`.
 - **Screeners.** `yf.screen(...)` occasionally returns a dict with an
   empty `quotes` list when Yahoo throttles; don't mistake it for "no
   movers today." Log the full response if you see this in the wild.
+- **Option IV units.** yfinance reports implied volatility as a
+  decimal (`0.42` = 42%). Schwab reports it as a percent (`42.0`).
+  `get_option_chain` normalizes to Schwab's convention on the way
+  out — don't double-multiply if you touch that path.
+- **Option chain `Ticker.option_chain(date)` is one HTTP per
+  expiration.** A request covering every expiration on SPY is
+  dozens of round-trips. Encourage callers to pass `from_date` /
+  `to_date` / `exp_month` to narrow the window rather than pulling
+  the whole surface.
 
 ## What not to do
 

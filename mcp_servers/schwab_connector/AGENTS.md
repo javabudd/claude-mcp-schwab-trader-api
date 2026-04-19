@@ -129,6 +129,18 @@ Rotation: 5 MB × 3 backups.
 - **Options symbology.** Schwab expects the 21-character OSI format
   (e.g. `SPY   250321C00500000`), not dotted TOS notation. Equities
   and futures (`/ES`) work as-is.
+- **Option chains are nested maps, not lists.** `get_option_chain`
+  returns Schwab's native `callExpDateMap` / `putExpDateMap` keyed by
+  `"YYYY-MM-DD:dte"` → strike → **list** of contracts (not a single
+  contract — Schwab allows multiple strategy legs per strike). When
+  flattening for analysis, iterate the list; don't assume length 1
+  even for `strategy=SINGLE`.
+- **`strategy` overrides are load-bearing.** `ANALYTICAL` re-prices
+  the whole chain against caller-supplied `volatility` /
+  `underlying_price` / `interest_rate` / `days_to_expiration`. If any
+  of those are off, every Greek and theoretical value in the response
+  is off too. Don't set them just to round-trip — leave them `None`
+  unless the user is explicitly asking for a re-priced chain.
 - **Market hours.** Outside RTH, `lastPrice` may be stale; pre/post
   session fields live under different keys in the quote JSON.
 - **Sandbox vs production.** The developer portal offers a sandbox

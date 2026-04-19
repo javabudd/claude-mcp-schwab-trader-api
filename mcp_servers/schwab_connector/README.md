@@ -132,6 +132,72 @@ keyed by TA-Lib's output names. Any TA-Lib function works — common
 picks: `SMA`, `EMA`, `WMA`, `RSI`, `MACD`, `BBANDS`, `ATR`, `ADX`,
 `STOCH`, `STOCHRSI`, `OBV`, `CCI`, `MFI`, `AROON`.
 
+### `get_option_chain(symbol, contract_type="ALL", strike_count=None, ...)`
+
+Full option chain for an underlying, straight from
+`/marketdata/v1/chains`. Native Schwab shape:
+
+```json
+{
+  "symbol": "SPY",
+  "status": "SUCCESS",
+  "underlying": { "...": "underlying quote" },
+  "strategy": "SINGLE",
+  "callExpDateMap": {
+    "2025-06-20:47": {
+      "510.0": [
+        {"putCall": "CALL", "symbol": "SPY   250620C00510000",
+         "bid": 12.35, "ask": 12.45, "last": 12.40, "mark": 12.40,
+         "totalVolume": 4821, "openInterest": 18234,
+         "volatility": 15.82,
+         "delta": 0.58, "gamma": 0.021, "theta": -0.084,
+         "vega": 0.63, "rho": 0.18,
+         "intrinsicValue": 4.1, "timeValue": 8.3,
+         "strikePrice": 510.0, "daysToExpiration": 47}
+      ]
+    }
+  },
+  "putExpDateMap": { "...": "same shape, puts" }
+}
+```
+
+Useful filters:
+
+- `contract_type` — `CALL`, `PUT`, or `ALL`.
+- `strike_count` — strikes above **and** below the at-the-money
+  strike. Use this to keep responses small.
+- `strategy` — defaults to `SINGLE`. Set `ANALYTICAL` to theoretical-
+  price the chain at overridden `volatility` / `underlying_price` /
+  `interest_rate` / `days_to_expiration`. Other values
+  (`VERTICAL`, `CALENDAR`, `STRANGLE`, `STRADDLE`, `BUTTERFLY`,
+  `CONDOR`, `DIAGONAL`, `COLLAR`, `ROLL`, `COVERED`) make Schwab
+  return pre-built multi-leg strategy previews.
+- `from_date` / `to_date` — `YYYY-MM-DD` bounds on expiration.
+- `range_` — `ITM`, `NTM`, `OTM`, `SAK`, `SBK`, `SNK`, or `ALL`.
+- `strike` — exact strike filter.
+- `exp_month` — `JAN`..`DEC` or `ALL`.
+- `option_type` — `S` (standard), `NS` (non-standard), or `ALL`.
+- `include_underlying_quote` — defaults to `true`; set `false` to
+  skip the underlying block and shrink the payload.
+
+### `get_option_expirations(symbol)`
+
+List of available expiration series for an underlying, from
+`/marketdata/v1/expirationchain`. Use this before calling
+`get_option_chain` when you need to know which dates exist (weekly
+vs standard vs quarterly, settlement type, option root symbols).
+
+```json
+{
+  "status": "SUCCESS",
+  "expirationList": [
+    {"expirationDate": "2025-06-20", "daysToExpiration": 47,
+     "expirationType": "M", "settlementType": "P",
+     "optionRoots": "SPY", "standard": true}
+  ]
+}
+```
+
 ### `get_movers(index, sort=None, frequency=None)`
 
 Top movers for an index. Handy for screeners.

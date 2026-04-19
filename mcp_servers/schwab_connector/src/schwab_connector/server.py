@@ -222,6 +222,99 @@ def run_technical_analysis(
 
 
 @mcp.tool()
+def get_option_chain(
+    symbol: str,
+    contract_type: str = "ALL",
+    strike_count: int | None = None,
+    include_underlying_quote: bool = True,
+    strategy: str = "SINGLE",
+    interval: float | None = None,
+    strike: float | None = None,
+    range_: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    volatility: float | None = None,
+    underlying_price: float | None = None,
+    interest_rate: float | None = None,
+    days_to_expiration: int | None = None,
+    exp_month: str | None = None,
+    option_type: str | None = None,
+) -> dict[str, Any]:
+    """Option chain for an underlying.
+
+    Native Schwab payload with ``callExpDateMap`` / ``putExpDateMap``
+    keyed by ``"YYYY-MM-DD:dte"`` → strike → list of contracts. Each
+    contract includes bid/ask/last/mark, volume, open interest, IV,
+    Greeks (delta/gamma/theta/vega/rho), intrinsic/extrinsic value,
+    and the 21-char OSI symbol.
+
+    Args:
+        symbol: Underlying ticker (e.g. ``"SPY"``, ``"AAPL"``).
+        contract_type: ``CALL``, ``PUT``, or ``ALL``.
+        strike_count: Strikes above and below the ATM strike.
+        include_underlying_quote: Include the underlying's quote.
+        strategy: ``SINGLE`` (default) or one of ``ANALYTICAL``,
+            ``COVERED``, ``VERTICAL``, ``CALENDAR``, ``STRANGLE``,
+            ``STRADDLE``, ``BUTTERFLY``, ``CONDOR``, ``DIAGONAL``,
+            ``COLLAR``, ``ROLL``.
+        interval: Strike spacing (``ANALYTICAL`` only).
+        strike: Return only contracts at this exact strike.
+        range_: ``ITM``, ``NTM``, ``OTM``, ``SAK``, ``SBK``,
+            ``SNK``, or ``ALL``.
+        from_date, to_date: ``YYYY-MM-DD`` expiration bounds.
+        volatility, underlying_price, interest_rate,
+        days_to_expiration: ``ANALYTICAL`` overrides.
+        exp_month: ``JAN``..``DEC`` or ``ALL``.
+        option_type: ``S``, ``NS``, or ``ALL``.
+    """
+    logger.info(
+        "get_option_chain symbol=%s type=%s strategy=%s",
+        symbol, contract_type, strategy,
+    )
+    try:
+        result = _get_client().get_option_chain(
+            symbol,
+            contract_type=contract_type,
+            strike_count=strike_count,
+            include_underlying_quote=include_underlying_quote,
+            strategy=strategy,
+            interval=interval,
+            strike=strike,
+            range_=range_,
+            from_date=from_date,
+            to_date=to_date,
+            volatility=volatility,
+            underlying_price=underlying_price,
+            interest_rate=interest_rate,
+            days_to_expiration=days_to_expiration,
+            exp_month=exp_month,
+            option_type=option_type,
+        )
+    except Exception:
+        logger.exception("get_option_chain failed symbol=%s", symbol)
+        raise
+    return result
+
+
+@mcp.tool()
+def get_option_expirations(symbol: str) -> dict[str, Any]:
+    """Expiration series list for an underlying.
+
+    Returns ``{"status", "expirationList": [{"expirationDate",
+    "daysToExpiration", "expirationType", "settlementType",
+    "optionRoots", "standard"}, ...]}``. Use this to discover
+    available expirations before pulling a full chain slice.
+    """
+    logger.info("get_option_expirations symbol=%s", symbol)
+    try:
+        result = _get_client().get_option_expirations(symbol)
+    except Exception:
+        logger.exception("get_option_expirations failed symbol=%s", symbol)
+        raise
+    return result
+
+
+@mcp.tool()
 def get_movers(
     index: str,
     sort: str | None = None,

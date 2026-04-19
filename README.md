@@ -34,8 +34,8 @@ its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 
 | Server                                                         | What it gives the model                                                          | Details                                                            |
 |----------------------------------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------|
-| [`schwab_connector`](mcp_servers/schwab_connector)             | Quotes, OHLCV history, TA-Lib indicators, movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
-| [`yahoo_connector`](mcp_servers/yahoo_connector)               | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+| [`schwab_connector`](mcp_servers/schwab_connector)             | Quotes, OHLCV history, TA-Lib indicators, option chains (with Greeks), movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
+| [`yahoo_connector`](mcp_servers/yahoo_connector)               | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. Option chains are delayed and omit Greeks. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
 | [`fred_connector`](mcp_servers/fred_connector)                 | Macro from FRED: economic-release calendar (CPI, NFP, GDP, PCE, retail sales, JOLTS, …), series metadata, and observation time-series. Additive — runs alongside either market-data backend on port 8766. | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
 | [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates + SEP / press-conference flags, scraped directly from federalreserve.gov (primary source). Additive — port 8767. | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
 
@@ -67,6 +67,7 @@ the data comes from and what's not available:
 | Brokerage (`get_accounts`)   | ✅ real positions, cost basis, P&L          | ❌ raises — no brokerage                      |
 | Market hours (`get_market_hours`) | ✅ authoritative, holiday-aware        | ❌ raises — Yahoo has no such endpoint        |
 | Movers                       | per-index (`$SPX`, `$DJI`, …)               | US-market-wide Yahoo screeners               |
+| Option chains (`get_option_chain`) | ✅ Greeks, strategy previews, real-time | ⚠️ delayed ~15min, no Greeks, `SINGLE` only  |
 | Intraday history depth       | Long (years of minute bars)                 | Short (~7d for 1m, ~60d for sub-hourly)      |
 | Data freshness               | Real-time during RTH (Schwab entitlement)   | Typically delayed ~15 min                    |
 | Unofficial endpoint?         | No — stable, paid, documented API           | Yes — `yfinance` scrapes; expect drift       |

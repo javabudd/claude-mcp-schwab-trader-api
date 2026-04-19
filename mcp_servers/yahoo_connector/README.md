@@ -86,6 +86,47 @@ identical to the Schwab connector — see its README for the full
 examples. Common picks: `SMA`, `EMA`, `RSI`, `MACD`, `BBANDS`, `ATR`,
 `ADX`, `STOCH`, `OBV`.
 
+### `get_option_chain(symbol, contract_type="ALL", strike_count=None, ...)`
+
+Schwab-shaped option chain built from `yfinance`'s `Ticker.option_chain`.
+Response mirrors the Schwab connector's `callExpDateMap` /
+`putExpDateMap` structure so downstream code is portable.
+
+**Important divergences from Schwab — every call carries a
+`"dataQualityWarning"` field flagging these:**
+
+- **No Greeks.** yfinance does not publish delta/gamma/theta/vega/rho;
+  they are emitted as `null`. Implied volatility *is* available
+  (normalized to Schwab's percent convention).
+- **Delayed ~15min.** Same lag as the rest of Yahoo.
+- **Thin strikes may be stale.** Low-volume strikes often show zero
+  or stale bid/ask. yfinance doesn't expose bid/ask sizes either;
+  they come back as `0`.
+- **`strategy="SINGLE"` only.** `ANALYTICAL`, `VERTICAL`, `STRADDLE`,
+  etc. raise `YahooCapabilityError` rather than silently returning
+  single-leg data.
+- **`option_type="NS"` is unsupported** — Yahoo does not tag
+  non-standard contracts.
+- **The `ANALYTICAL`-only numeric overrides** (`interval`,
+  `volatility`, `underlying_price`, `interest_rate`,
+  `days_to_expiration`) also raise if passed, since they aren't
+  meaningful without the `ANALYTICAL` strategy.
+
+Supported filters: `contract_type` (CALL/PUT/ALL), `strike_count`
+(symmetric band around ATM), `strike` (exact), `range_`
+(ITM/NTM/OTM/ALL), `from_date` / `to_date` (YYYY-MM-DD),
+`exp_month` (JAN..DEC or ALL), `include_underlying_quote`.
+
+For a strategy-aware chain with Greeks, switch to the Schwab backend.
+
+### `get_option_expirations(symbol)`
+
+Schwab-shaped expiration list from `Ticker.options`. Only the
+`expirationDate` and computed `daysToExpiration` are populated —
+`expirationType`, `settlementType`, `optionRoots`, and `standard`
+are `null` because Yahoo does not expose them. Switch to Schwab
+when you need weekly/standard/AM-vs-PM tagging.
+
 ### `get_movers(index, sort=None, frequency=None)`
 
 Top movers via a Yahoo predefined screener.

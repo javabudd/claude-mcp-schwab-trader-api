@@ -162,6 +162,103 @@ class SchwabClient:
             params["period"] = period
         return self._get_json("/marketdata/v1/pricehistory", params=params)
 
+    def get_option_chain(
+        self,
+        symbol: str,
+        contract_type: str = "ALL",
+        strike_count: int | None = None,
+        include_underlying_quote: bool = True,
+        strategy: str = "SINGLE",
+        interval: float | None = None,
+        strike: float | None = None,
+        range_: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        volatility: float | None = None,
+        underlying_price: float | None = None,
+        interest_rate: float | None = None,
+        days_to_expiration: int | None = None,
+        exp_month: str | None = None,
+        option_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Option chain from ``/marketdata/v1/chains``.
+
+        Native Schwab response: ``{"symbol", "status",
+        "underlying", "strategy", "callExpDateMap",
+        "putExpDateMap", ...}``. Each exp-date map is keyed by
+        ``"YYYY-MM-DD:dte"`` then by strike, and each strike holds
+        a list of contracts with bid/ask/last/mark, volume, OI, IV,
+        delta/gamma/theta/vega/rho, intrinsic/extrinsic value, and
+        the 21-char OSI symbol.
+
+        Args:
+            symbol: Underlying ticker (e.g. ``"SPY"``).
+            contract_type: ``CALL``, ``PUT``, or ``ALL``.
+            strike_count: Number of strikes to return above and below
+                the at-the-money strike.
+            include_underlying_quote: Include the underlying's quote
+                block alongside the chain.
+            strategy: ``SINGLE`` (default) or one of ``ANALYTICAL``,
+                ``COVERED``, ``VERTICAL``, ``CALENDAR``, ``STRANGLE``,
+                ``STRADDLE``, ``BUTTERFLY``, ``CONDOR``, ``DIAGONAL``,
+                ``COLLAR``, ``ROLL``. ``ANALYTICAL`` enables the
+                ``volatility``/``underlying_price``/``interest_rate``/
+                ``days_to_expiration`` overrides.
+            interval: Strike spacing for ``ANALYTICAL``.
+            strike: Return only contracts at this exact strike.
+            range_: ``ITM``, ``NTM``, ``OTM``, ``SAK`` (strikes above
+                mkt), ``SBK`` (below), ``SNK`` (near), or ``ALL``.
+            from_date, to_date: ``YYYY-MM-DD`` bounds on expiration.
+            volatility, underlying_price, interest_rate,
+            days_to_expiration: overrides for ``ANALYTICAL``.
+            exp_month: ``JAN``..``DEC`` or ``ALL``.
+            option_type: ``S`` (standard), ``NS`` (non-standard),
+                or ``ALL``.
+        """
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "contractType": contract_type,
+            "strategy": strategy,
+            "includeUnderlyingQuote": str(include_underlying_quote).lower(),
+        }
+        if strike_count is not None:
+            params["strikeCount"] = strike_count
+        if interval is not None:
+            params["interval"] = interval
+        if strike is not None:
+            params["strike"] = strike
+        if range_ is not None:
+            params["range"] = range_
+        if from_date is not None:
+            params["fromDate"] = from_date
+        if to_date is not None:
+            params["toDate"] = to_date
+        if volatility is not None:
+            params["volatility"] = volatility
+        if underlying_price is not None:
+            params["underlyingPrice"] = underlying_price
+        if interest_rate is not None:
+            params["interestRate"] = interest_rate
+        if days_to_expiration is not None:
+            params["daysToExpiration"] = days_to_expiration
+        if exp_month is not None:
+            params["expMonth"] = exp_month
+        if option_type is not None:
+            params["optionType"] = option_type
+        return self._get_json("/marketdata/v1/chains", params=params)
+
+    def get_option_expirations(self, symbol: str) -> dict[str, Any]:
+        """Expiration-series list from ``/marketdata/v1/expirationchain``.
+
+        Returns ``{"status", "expirationList": [{"expirationDate",
+        "daysToExpiration", "expirationType", "settlementType",
+        "optionRoots", "standard"}, ...]}``. Use this to discover
+        available expirations before pulling a full chain slice.
+        """
+        return self._get_json(
+            "/marketdata/v1/expirationchain", params={"symbol": symbol}
+        )
+
     def get_movers(
         self,
         index: str,

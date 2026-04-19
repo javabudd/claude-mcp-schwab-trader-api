@@ -191,6 +191,88 @@ def run_technical_analysis(
 
 
 @mcp.tool()
+def get_option_chain(
+    symbol: str,
+    contract_type: str = "ALL",
+    strike_count: int | None = None,
+    include_underlying_quote: bool = True,
+    strategy: str = "SINGLE",
+    interval: float | None = None,
+    strike: float | None = None,
+    range_: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    volatility: float | None = None,
+    underlying_price: float | None = None,
+    interest_rate: float | None = None,
+    days_to_expiration: int | None = None,
+    exp_month: str | None = None,
+    option_type: str | None = None,
+) -> dict[str, Any]:
+    """Schwab-shaped option chain for an underlying.
+
+    Response shape matches the Schwab connector's ``get_option_chain``:
+    ``callExpDateMap`` / ``putExpDateMap`` keyed by
+    ``"YYYY-MM-DD:dte"`` → strike → list of contract dicts. **Yahoo
+    does not publish Greeks**, so ``delta``/``gamma``/``theta``/
+    ``vega``/``rho`` are ``null``; quotes are **~15min delayed** and
+    illiquid strikes may show stale or zero bid/ask. A
+    ``dataQualityWarning`` key is included on every response. For
+    real-time quotes and Greeks, switch to the Schwab backend.
+
+    Only ``strategy="SINGLE"`` is supported. Multi-leg / analytical
+    strategies and the ``ANALYTICAL``-only numeric overrides raise
+    rather than silently returning single-leg data.
+    """
+    logger.info(
+        "get_option_chain symbol=%s type=%s strategy=%s",
+        symbol, contract_type, strategy,
+    )
+    try:
+        result = _get_client().get_option_chain(
+            symbol,
+            contract_type=contract_type,
+            strike_count=strike_count,
+            include_underlying_quote=include_underlying_quote,
+            strategy=strategy,
+            interval=interval,
+            strike=strike,
+            range_=range_,
+            from_date=from_date,
+            to_date=to_date,
+            volatility=volatility,
+            underlying_price=underlying_price,
+            interest_rate=interest_rate,
+            days_to_expiration=days_to_expiration,
+            exp_month=exp_month,
+            option_type=option_type,
+        )
+    except Exception:
+        logger.exception("get_option_chain failed symbol=%s", symbol)
+        raise
+    return result
+
+
+@mcp.tool()
+def get_option_expirations(symbol: str) -> dict[str, Any]:
+    """Expiration series list for an underlying.
+
+    Schwab-shaped response: ``{"status", "expirationList":
+    [{"expirationDate", "daysToExpiration", "expirationType",
+    "settlementType", "optionRoots", "standard"}, ...]}``. Yahoo
+    exposes only the date list, so the metadata fields are ``null``
+    — switch to Schwab for standard-vs-weekly/AM-vs-PM tagging.
+    """
+    logger.info("get_option_expirations symbol=%s", symbol)
+    try:
+        result = _get_client().get_option_expirations(symbol)
+    except Exception:
+        logger.exception("get_option_expirations failed symbol=%s", symbol)
+        raise
+    return result
+
+
+@mcp.tool()
 def get_movers(
     index: str,
     sort: str | None = None,
