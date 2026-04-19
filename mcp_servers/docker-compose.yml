@@ -1,0 +1,43 @@
+# traider MCP-server hub
+#
+# Each MCP server under ./<name>/ has its own Dockerfile and a service
+# entry here. All services are read-only bridges (no order entry, no
+# writes) — see ../AGENTS.md.
+#
+# The user runs each server in the background and points their AI CLI at
+# the exposed HTTP endpoint. stdio transport is not useful from a
+# container, so every service here uses streamable-http.
+#
+# First-time OAuth (for any server that needs it) is an interactive
+# step. Example for the Schwab connector:
+#
+#   docker compose run --rm schwab-connector schwab-connector auth
+#
+# That writes the token file to the mounted ~/.schwab-connector/ volume
+# on the host, and the main `up` command can then reuse it.
+
+name: traider
+
+services:
+  schwab-connector:
+    build:
+      context: ./schwab_connector
+    image: traider/schwab-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      SCHWAB_TOKEN_FILE: /tokens/schwab-token.json
+      SCHWAB_CONNECTOR_LOG: /app/logs/schwab-connector.log
+    volumes:
+      # OAuth token file (rw — the server rewrites it when the access
+      # token refreshes). Host path matches the default the CLI uses
+      # when you run `schwab-connector auth` outside docker, so the
+      # two modes share the same token.
+      - ${HOME}/.schwab-connector:/tokens
+      # Server logs, visible on the host at ../logs.
+      - ../logs:/app/logs
+    ports:
+      - "8765:8765"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

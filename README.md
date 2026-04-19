@@ -19,7 +19,8 @@ traider/
 ├── AGENTS.md                 # hub north star (load into your AI CLI)
 ├── README.md                 # this file
 ├── mcp_servers/
-│   └── schwab_connector/     # Schwab Trader API
+│   ├── docker-compose.yml    # one service per server (optional)
+│   └── schwab_connector/     # Schwab Trader API (incl. its Dockerfile)
 └── logs/                     # per-server runtime logs (cwd-relative)
 ```
 
@@ -92,6 +93,64 @@ Point your MCP client at the running server (stdio or HTTP). The
 model will then see every tool the server exposes. From there, ask
 questions and let the model chain tools — the per-server README has
 worked examples.
+
+## Alternative: run with Docker
+
+If you'd rather not install conda and the C deps (TA-Lib, …) on your
+host, each MCP server ships a `Dockerfile` next to its code, and
+`mcp_servers/docker-compose.yml` wires them all together. The images
+use the same `traider` conda env internally, so install paths match
+the non-Docker quickstart.
+
+### 1. Configure credentials
+
+Same as step 3 above — drop a `.env` at the repo root. Compose reads
+it from `mcp_servers/docker-compose.yml` via `env_file: ../.env`.
+
+### 2. Build the images
+
+```bash
+cd mcp_servers
+docker compose build
+```
+
+### 3. One-time OAuth (per server that needs it)
+
+Run the server's auth subcommand interactively. The token file is
+written to `~/.schwab-connector/` on the host (mounted into the
+container), so a later `docker compose up` reuses it, and so does the
+host `schwab-connector` CLI if you also use it outside Docker.
+
+```bash
+docker compose run --rm schwab-connector schwab-connector auth
+```
+
+You'll paste the Schwab callback URL back into the terminal, same as
+the non-Docker flow (the container never has to receive the callback
+itself — it's a copy-paste from your browser).
+
+### 4. Start the servers
+
+```bash
+docker compose up -d
+```
+
+Each server exposes its MCP endpoint on a fixed port:
+
+| Server              | URL                     |
+|---------------------|-------------------------|
+| `schwab-connector`  | `http://localhost:8765` |
+
+Point your AI CLI's MCP client at those URLs (streamable-http
+transport). Logs land in `./logs/` on the host.
+
+### 5. Stop / rebuild
+
+```bash
+docker compose down                   # stop everything
+docker compose up -d schwab-connector # start just one server
+docker compose build --no-cache       # after changing a Dockerfile
+```
 
 ## What this hub will and won't do
 
