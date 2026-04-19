@@ -41,6 +41,11 @@ Every FOMC meeting listed on the Fed's calendar page. Each meeting:
 
 - `is_sep` — Summary of Economic Projections (dot plot) released with
   this meeting.
+- `has_press_conference` / `press_conference_url` — set when the Fed
+  has posted the press-conference permalink (happens a few days before
+  the meeting). Absence on a future meeting doesn't mean no presser —
+  every FOMC meeting since 2019 has had one; the flag just tracks when
+  the URL lands on the page.
 - `note` — parenthetical on the date cell, if any (e.g.
   `"notation vote"`, `"unscheduled"`, `"conference call"`).
 - `upcoming_only=True` drops meetings whose `end_date` is in the past.

@@ -42,6 +42,10 @@ _MONTH_NUMBER = {
     "january": 1, "february": 2, "march": 3, "april": 4,
     "may": 5, "june": 6, "july": 7, "august": 8,
     "september": 9, "october": 10, "november": 11, "december": 12,
+    # Fed mixes full and abbreviated spellings; the abbrev form shows
+    # up most often in two-month labels like "Jan/Feb" or "Oct/Nov".
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+    "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
 # Matches date cells like "27-28", "8-9*", "22", "(unscheduled)",

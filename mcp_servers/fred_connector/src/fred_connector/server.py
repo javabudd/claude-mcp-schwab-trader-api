@@ -14,6 +14,7 @@ import argparse
 import atexit
 import logging
 import os
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,31 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .fred_client import FredClient
+
+
+# Trading-relevant releases, grouped by what they move. Kept deliberately
+# small — a curated list is only useful if the ceiling is low. Users who
+# want more can call `get_release_schedule` with their own `release_ids`.
+# Release 101 ("FOMC Press Release") is intentionally *not* here: FRED
+# emits noisy every-day-of-the-meeting-window rows for it; for FOMC
+# dates use `fed_calendar_connector`'s `get_fomc_meetings` instead.
+_HIGH_IMPACT_RELEASES: dict[str, dict[int, str]] = {
+    "inflation": {
+        10: "Consumer Price Index",
+        21: "Personal Income and Outlays",
+        46: "Producer Price Index",
+    },
+    "labor": {
+        50: "Employment Situation",
+        192: "Job Openings and Labor Turnover Survey",
+    },
+    "growth": {
+        53: "Gross Domestic Product",
+    },
+    "consumer": {
+        32: "Advance Monthly Sales for Retail and Food Services",
+    },
+}
 
 logger = logging.getLogger("fred_connector")
 
@@ -48,47 +74,265 @@ def _get_client() -> FredClient:
 def get_release_schedule(
     realtime_start: str | None = None,
     realtime_end: str | None = None,
+    release_ids: list[int] | None = None,
+    name_contains: list[str] | None = None,
     limit: int | None = 200,
     include_empty: bool = True,
-    order_by: str | None = "release_date",
     sort_order: str | None = "asc",
+    dedupe: bool = True,
 ) -> dict[str, Any]:
-    """Economic-release calendar across every FRED release.
+    """Economic-release calendar, filtered server-side.
 
-    This is the "what's coming out this week" view: CPI, PPI,
-    Employment Situation (NFP), GDP, PCE, retail sales, Jolts, and
-    everything else FRED tracks.
+    Defaults to a **forward-looking** view (``realtime_start`` =
+    today UTC) so the "schedule" actually means what's coming up.
+    Pass an earlier ``realtime_start`` to see historical dates too.
+
+    Filtering (apply as many as you want — they compose):
+
+    - ``release_ids`` — fan out to FRED's per-release endpoint once
+      per id and merge the rows. Cleanest way to cut noise: if you
+      already know the releases you care about (CPI=10, NFP=50,
+      GDP=53, …), this avoids dragging in hundreds of low-signal
+      releases. See :func:`list_releases` to discover ids.
+    - ``name_contains`` — case-insensitive substring match against
+      ``release_name``. Multiple strings are OR'd. Useful when you
+      know the name but not the id.
+    - ``dedupe`` — drops duplicate ``(date, release_id)`` rows. FRED
+      sometimes emits near-duplicates for the same release on the
+      same day; ``True`` by default.
+
+    ``include_empty=True`` keeps scheduled future dates that don't
+    have data attached yet — that's how you *see* upcoming releases.
+
+    For FOMC meeting dates specifically, reach for
+    ``get_fomc_meetings`` on the ``fed_calendar_connector`` rather
+    than this tool: FRED's release 101 ("FOMC Press Release") is
+    noisy here (fires on every day of the meeting window).
+
+    Returns a FRED-shaped payload with ``release_dates`` and a
+    ``count`` that reflects the post-filter row count.
+    """
+    if realtime_start is None:
+        realtime_start = datetime.now(timezone.utc).date().isoformat()
+
+    logger.info(
+        "get_release_schedule realtime=%s..%s release_ids=%s name_contains=%s "
+        "limit=%s include_empty=%s dedupe=%s",
+        realtime_start, realtime_end, release_ids, name_contains,
+        limit, include_empty, dedupe,
+    )
+    client = _get_client()
+    try:
+        if release_ids:
+            rows = _fan_out_release_dates(
+                client,
+                release_ids=release_ids,
+                realtime_start=realtime_start,
+                realtime_end=realtime_end,
+                limit=limit,
+                include_empty=include_empty,
+            )
+            base: dict[str, Any] = {
+                "realtime_start": realtime_start,
+                "realtime_end": realtime_end,
+            }
+        else:
+            raw = client.releases_dates(
+                realtime_start=realtime_start,
+                realtime_end=realtime_end,
+                limit=limit,
+                include_release_dates_with_no_data=include_empty,
+                order_by="release_date",
+                sort_order=sort_order,
+            )
+            rows = list(raw.get("release_dates", []))
+            base = {
+                k: v for k, v in raw.items() if k != "release_dates" and k != "count"
+            }
+    except Exception:
+        logger.exception("get_release_schedule failed")
+        raise
+
+    if name_contains:
+        needles = [s.lower() for s in name_contains if s]
+        rows = [
+            r for r in rows
+            if any(n in (r.get("release_name") or "").lower() for n in needles)
+        ]
+
+    if dedupe:
+        rows = _dedupe_release_rows(rows)
+
+    reverse = (sort_order or "asc").lower() == "desc"
+    rows.sort(
+        key=lambda r: (r.get("date") or "", r.get("release_id") or 0),
+        reverse=reverse,
+    )
+
+    logger.info("get_release_schedule result count=%d", len(rows))
+    return {**base, "count": len(rows), "release_dates": rows}
+
+
+@mcp.tool()
+def get_high_impact_calendar(
+    realtime_start: str | None = None,
+    realtime_end: str | None = None,
+    categories: list[str] | None = None,
+    include_empty: bool = True,
+    limit_per_release: int = 50,
+) -> dict[str, Any]:
+    """Curated economic calendar for a trading analyst.
+
+    Fans out to FRED per-release for a hand-picked list of
+    market-moving releases (CPI, PCE, PPI, NFP, JOLTS, GDP, Retail
+    Sales) and returns a single merged, deduped, category-annotated
+    timeline. Defaults to a forward-looking view (today → FRED's
+    horizon).
 
     Args:
-        realtime_start: ISO date (``YYYY-MM-DD``). Default is FRED's
-            earliest realtime date. Use today's date to filter to
-            upcoming releases.
-        realtime_end: ISO date. Default is FRED's latest realtime date.
-        limit: Max rows (FRED caps at 1000).
-        include_empty: If True, list release dates even when no data was
-            published that day (common for scheduled future dates).
-        order_by: ``release_date`` | ``release_id`` | ``release_name``.
-        sort_order: ``asc`` or ``desc``.
+        realtime_start: ISO date. Defaults to today UTC — i.e.
+            upcoming only.
+        realtime_end: ISO date. Defaults to FRED's horizon.
+        categories: Subset of ``inflation`` / ``labor`` / ``growth``
+            / ``consumer``. ``None`` = all.
+        include_empty: Keep scheduled future dates that don't yet
+            carry values (that's usually what you want for a
+            calendar).
+        limit_per_release: Per-release row cap (FRED max 10000).
 
-    Returns the raw FRED payload. Each entry in ``release_dates`` has
-    ``release_id``, ``release_name``, and ``date``.
+    **Does not cover FOMC meeting dates** — FRED's release 101 is
+    noisy. Use ``get_fomc_meetings`` on the ``fed_calendar_connector``
+    for those.
+
+    For anything outside this curated list, use
+    :func:`get_release_schedule` with your own ``release_ids`` or
+    ``name_contains``.
+
+    Each row includes ``category``, ``release_id``, ``release_name``,
+    and ``date``.
     """
+    chosen = _resolve_categories(categories)
+    flat: dict[int, tuple[str, str]] = {
+        rid: (cat, name)
+        for cat, releases in chosen.items()
+        for rid, name in releases.items()
+    }
+    release_ids = sorted(flat.keys())
+
+    if realtime_start is None:
+        realtime_start = datetime.now(timezone.utc).date().isoformat()
+
     logger.info(
-        "get_release_schedule realtime=%s..%s limit=%s include_empty=%s",
-        realtime_start, realtime_end, limit, include_empty,
+        "get_high_impact_calendar categories=%s ids=%s realtime=%s..%s",
+        sorted(chosen.keys()), release_ids, realtime_start, realtime_end,
     )
+
     try:
-        return _get_client().releases_dates(
+        rows = _fan_out_release_dates(
+            _get_client(),
+            release_ids=release_ids,
+            realtime_start=realtime_start,
+            realtime_end=realtime_end,
+            limit=limit_per_release,
+            include_empty=include_empty,
+        )
+    except Exception:
+        logger.exception("get_high_impact_calendar fan-out failed")
+        raise
+
+    for row in rows:
+        rid = row.get("release_id")
+        if rid in flat:
+            row["category"] = flat[rid][0]
+
+    rows = _dedupe_release_rows(rows)
+    rows.sort(key=lambda r: (r.get("date") or "", r.get("release_id") or 0))
+
+    logger.info(
+        "get_high_impact_calendar result count=%d categories=%s",
+        len(rows), sorted(chosen.keys()),
+    )
+    return {
+        "realtime_start": realtime_start,
+        "realtime_end": realtime_end,
+        "categories": sorted(chosen.keys()),
+        "release_ids": release_ids,
+        "count": len(rows),
+        "release_dates": rows,
+        "note": (
+            "FOMC meeting dates are not in this feed — use "
+            "fed_calendar_connector.get_fomc_meetings for those."
+        ),
+    }
+
+
+def _resolve_categories(
+    categories: list[str] | None,
+) -> dict[str, dict[int, str]]:
+    if categories is None:
+        return _HIGH_IMPACT_RELEASES
+    wanted = {c.lower() for c in categories}
+    unknown = wanted - set(_HIGH_IMPACT_RELEASES)
+    if unknown:
+        raise ValueError(
+            f"unknown categories: {sorted(unknown)}; "
+            f"valid: {sorted(_HIGH_IMPACT_RELEASES)}"
+        )
+    return {k: _HIGH_IMPACT_RELEASES[k] for k in wanted}
+
+
+def _fan_out_release_dates(
+    client: FredClient,
+    *,
+    release_ids: list[int],
+    realtime_start: str | None,
+    realtime_end: str | None,
+    limit: int | None,
+    include_empty: bool,
+) -> list[dict[str, Any]]:
+    """Per-release calls merged into a flat list of enriched rows.
+
+    `/release/dates` doesn't echo the release name (you queried by id),
+    so we stamp ``release_id`` and ``release_name`` onto each row to
+    match the shape `/releases/dates` returns.
+    """
+    merged: list[dict[str, Any]] = []
+    for rid in release_ids:
+        payload = client.release_dates(
+            rid,
             realtime_start=realtime_start,
             realtime_end=realtime_end,
             limit=limit,
             include_release_dates_with_no_data=include_empty,
-            order_by=order_by,
-            sort_order=sort_order,
         )
-    except Exception:
-        logger.exception("get_release_schedule failed")
-        raise
+        name = _release_name_from_payload(payload)
+        for row in payload.get("release_dates", []):
+            merged.append({
+                "release_id": rid,
+                "release_name": name or row.get("release_name"),
+                "date": row.get("date"),
+            })
+    return merged
+
+
+def _release_name_from_payload(payload: dict[str, Any]) -> str | None:
+    for row in payload.get("release_dates", []):
+        name = row.get("release_name")
+        if name:
+            return name
+    return None
+
+
+def _dedupe_release_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, Any]] = set()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        key = (row.get("date"), row.get("release_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 @mcp.tool()

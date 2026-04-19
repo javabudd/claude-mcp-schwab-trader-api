@@ -20,15 +20,43 @@ than second-guessing a translation.
 
 ### `get_release_schedule(...)`
 
-The "what's coming out this week" view — the economic-release calendar
-across *every* FRED release (CPI, PPI, NFP, GDP, PCE, Retail Sales,
-JOLTS, …).
+Economic-release calendar, **filtered server-side**. Defaults to a
+forward-looking window (`realtime_start` = today UTC) so you're not
+dragging down years of history to find next week's CPI print.
 
-- `realtime_start` / `realtime_end` — ISO `YYYY-MM-DD`. Pass today to
-  filter to upcoming releases.
-- `include_empty=True` includes scheduled future dates that don't
-  have data attached yet (this is how you find upcoming prints).
-- `order_by`, `sort_order`, `limit` — standard FRED knobs.
+- `realtime_start` / `realtime_end` — ISO `YYYY-MM-DD`. Override the
+  default (today → FRED's horizon) when you want history.
+- `release_ids` — fan out to FRED's per-release endpoint once per id
+  and merge. Cleanest way to cut noise when you already know the
+  handful of releases you care about. See `list_releases` for ids.
+- `name_contains` — list of substrings, OR'd together, case-insensitive
+  match on `release_name`. Useful when you know the name but not the
+  id (e.g. `["Consumer Price", "Personal Income", "Employment"]`).
+- `include_empty=True` keeps scheduled future dates that don't yet
+  carry values — that's how a forward-looking calendar finds upcoming
+  prints.
+- `dedupe=True` drops duplicate `(date, release_id)` rows (FRED
+  sometimes emits near-duplicates).
+- `limit`, `sort_order` — standard FRED knobs.
+
+For **FOMC meeting dates** specifically, use
+[`fed_calendar_connector`](../fed_calendar_connector/README.md)'s
+`get_fomc_meetings` — FRED's release 101 ("FOMC Press Release") fires
+on every day of the meeting window, which is too noisy to be useful.
+
+### `get_high_impact_calendar(...)`
+
+Curated shortcut over `get_release_schedule` — pre-wired with the
+release IDs a trader actually cares about (CPI, PCE, PPI, NFP,
+JOLTS, GDP, Retail Sales) and a `category` annotation on each row.
+
+- `categories` — subset of `inflation`, `labor`, `growth`, `consumer`;
+  `None` = all.
+- Other params match `get_release_schedule`.
+- **Does not cover FOMC** — see `get_fomc_meetings` on
+  `fed_calendar_connector`. For anything outside the curated list,
+  fall back to `get_release_schedule` with your own `release_ids` or
+  `name_contains`.
 
 ### `get_release_dates(release_id, ...)`
 

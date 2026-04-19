@@ -57,8 +57,11 @@ def get_fomc_meetings(
             before today (UTC).
 
     Each meeting includes ``start_date`` / ``end_date`` (ISO), the
-    month label as published, the SEP flag, whether a press conference
-    is scheduled, and any parenthetical note (e.g. ``"notation vote"``,
+    month label as published, the SEP flag, the press-conference URL
+    (populated once the Fed posts the permalink — typically days
+    before the meeting; its absence on a future meeting does *not*
+    mean no presser is scheduled, since every FOMC meeting since 2019
+    has had one), and any parenthetical note (e.g. ``"notation vote"``,
     ``"unscheduled"``).
     """
     logger.info("get_fomc_meetings year=%s upcoming_only=%s", year, upcoming_only)

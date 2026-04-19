@@ -76,7 +76,13 @@ client.
 
 ## Tool surface
 
-- `get_release_schedule(...)` — calendar across all releases
+- `get_release_schedule(...)` — calendar across releases, with
+  server-side filtering (`release_ids` fan-out, `name_contains`
+  substring filter, `dedupe`). Forward-looking by default
+  (`realtime_start=today`).
+- `get_high_impact_calendar(...)` — curated fan-out for the releases
+  a trader actually cares about (CPI, PCE, PPI, NFP, JOLTS, GDP,
+  Retail Sales), bucketed by `category`.
 - `get_release_dates(release_id, ...)` — one release's schedule
 - `list_releases(...)` — directory for finding `release_id`s
 - `get_release_info(release_id)` — metadata for one release
@@ -84,6 +90,23 @@ client.
 - `search_series(search_text, ...)` — find series IDs by keyword
 - `get_series_info(series_id)` — metadata for one series
 - `get_series(series_id, ...)` — time-series observations
+
+### Why the heavy lifting lives server-side
+
+FRED's `/releases/dates` is a firehose (hundreds of low-signal
+releases). Two specific pain points the server now filters for you:
+
+1. **"FOMC Press Release" (release 101) spam** when
+   `include_release_dates_with_no_data=true`: fires on every day of
+   a meeting window, so a two-week window returns ~14 copies. The
+   curated tool excludes release 101 entirely; the docstring points
+   callers at `fed_calendar_connector.get_fomc_meetings` for FOMC
+   dates.
+2. **No knob to filter by release** on `/releases/dates` itself — if
+   a caller just wants CPI + NFP + GDP, they either pull everything
+   and filter client-side, or make three `/release/dates` calls.
+   `get_release_schedule(release_ids=[...])` and
+   `get_high_impact_calendar` fan out for them.
 
 FRED release-id cheatsheet for common trading-relevant prints (these
 change rarely; verify with `list_releases` if in doubt):
