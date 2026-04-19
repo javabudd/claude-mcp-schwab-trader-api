@@ -48,7 +48,11 @@ def _nan_to_none(values: Iterable[float]) -> list[float | None]:
     return [None if (v is None or (isinstance(v, float) and math.isnan(v))) else float(v) for v in values]
 
 
-def _run_one(inputs: dict[str, np.ndarray], spec: dict[str, Any]) -> tuple[str, Any]:
+def _run_one(
+    inputs: dict[str, np.ndarray],
+    spec: dict[str, Any],
+    talib_abstract,
+) -> tuple[str, Any]:
     if "name" not in spec:
         raise ValueError(f"indicator spec missing 'name': {spec!r}")
     name = str(spec["name"]).upper()
