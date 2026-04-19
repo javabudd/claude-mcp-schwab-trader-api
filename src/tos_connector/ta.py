@@ -108,12 +108,13 @@ def run_indicators(
         single-output indicators or a ``dict[output_name, list]`` for
         multi-output ones (MACD, BBANDS, STOCH, ...).
     """
+    talib_abstract = _load_talib_abstract()
     inputs = _candles_to_inputs(candles)
     datetimes = [c.get("datetime") for c in candles]
 
     results: dict[str, Any] = {}
     for spec in indicators:
-        label, value = _run_one(inputs, spec)
+        label, value = _run_one(inputs, spec, talib_abstract)
         results[label] = value
 
     if tail is not None and tail > 0:
