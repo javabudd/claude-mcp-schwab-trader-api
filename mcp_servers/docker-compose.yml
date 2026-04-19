@@ -20,10 +20,11 @@
 #   COMPOSE_PROFILES=yahoo    # uses Yahoo Finance (no account needed)
 #
 # Additive servers (fred-connector, fed-calendar-connector,
-# sec-edgar-connector, factor-connector) live on different ports and
-# can run alongside either backend. Combine profiles with a comma:
+# sec-edgar-connector, factor-connector, treasury-connector) live on
+# different ports and can run alongside either backend. Combine
+# profiles with a comma:
 #
-#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor
+#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor,treasury
 #
 # Then, from this directory:
 #
@@ -163,4 +164,23 @@ services:
       - ${HOME}/.cache/traider-factor-connector:/cache
     ports:
       - "8771:8771"
+    restart: unless-stopped
+
+  # Additive: US Treasury Fiscal Data — auction results, Daily Treasury
+  # Statement (TGA balance, cash flows), debt-to-the-penny. Runs on
+  # 8772. No credentials (Fiscal Data is unauthenticated). Yield-curve
+  # queries route to fred-connector, not here.
+  treasury-connector:
+    profiles: ["treasury"]
+    build:
+      context: ./treasury_connector
+    image: traider/treasury-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      TREASURY_CONNECTOR_LOG: /app/logs/treasury-connector.log
+    volumes:
+      - ../logs:/app/logs
+    ports:
+      - "8772:8772"
     restart: unless-stopped

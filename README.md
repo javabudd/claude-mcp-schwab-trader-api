@@ -25,7 +25,8 @@ traider/
 │   ├── fred_connector/           # FRED macro data / release calendar
 │   ├── fed_calendar_connector/   # FOMC meeting calendar (primary source)
 │   ├── sec_edgar_connector/      # SEC EDGAR filings, insiders, 13F, XBRL
-│   └── factor_connector/         # Ken French data library (Fama-French, industry)
+│   ├── factor_connector/         # Ken French data library (Fama-French, industry)
+│   └── treasury_connector/       # Treasury Fiscal Data (auctions, DTS, debt-to-the-penny)
 └── logs/                     # per-server runtime logs (cwd-relative)
 ```
 
@@ -42,6 +43,7 @@ its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 | [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates + SEP / press-conference flags, scraped directly from federalreserve.gov (primary source). Additive — port 8767. | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
 | [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR primary-source filings (10-K, 10-Q, 8-K, 20-F, …), Form 4 insider transactions, 13F institutional holdings, and XBRL company facts (per-company + cross-sectional frames). Additive — port 8768. | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
 | [`factor_connector`](mcp_servers/factor_connector)             | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, and 5/10/12/17/30/38/48/49-industry portfolios at monthly / weekly / daily frequencies. Disk-cached with explicit TTL. Additive — port 8771. | [README](mcp_servers/factor_connector/README.md) · [AGENTS](mcp_servers/factor_connector/AGENTS.md) |
+| [`treasury_connector`](mcp_servers/treasury_connector)         | US Treasury Fiscal Data: securities auction results (bid-to-cover, dealer takedown, stop-out yield), Daily Treasury Statement (TGA balance + cash flows), debt-to-the-penny. No credentials. Yield-curve queries route to `fred_connector`, not here. Additive — port 8772. | [README](mcp_servers/treasury_connector/README.md) · [AGENTS](mcp_servers/treasury_connector/AGENTS.md) |
 
 `schwab_connector` and `yahoo_connector` are **mutually exclusive
 alternatives**. Every other server is **additive**. Which servers
@@ -69,6 +71,7 @@ nothing starts (and Compose prints the list of available profiles).
 | `fed-calendar` | `fed-calendar-connector`  | 8767 | Additive (macro)    | None                            |
 | `sec-edgar`    | `sec-edgar-connector`     | 8768 | Additive (filings)  | `SEC_EDGAR_USER_AGENT` (yours)  |
 | `factor`       | `factor-connector`        | 8771 | Additive (factors)  | None                            |
+| `treasury`     | `treasury-connector`      | 8772 | Additive (Treasury) | None                            |
 
 Rules of thumb:
 
@@ -76,16 +79,16 @@ Rules of thumb:
   expose the same tool names and both bind 8765, so running both
   would make the second one fail to start.
 - **Add any mix of additive profiles.** `fred`, `fed-calendar`,
-  `sec-edgar`, and `factor` expose distinct tool names and distinct
-  ports, so they compose freely with each other and with either
-  market-data backend.
+  `sec-edgar`, `factor`, and `treasury` expose distinct tool names
+  and distinct ports, so they compose freely with each other and with
+  either market-data backend.
 
 Examples:
 
 ```bash
 COMPOSE_PROFILES=schwab                                    # just Schwab quotes/accounts
 COMPOSE_PROFILES=yahoo                                     # just Yahoo quotes
-COMPOSE_PROFILES=yahoo,fred,fed-calendar,sec-edgar,factor  # Yahoo + full macro + fundamentals + factors
+COMPOSE_PROFILES=yahoo,fred,fed-calendar,sec-edgar,factor,treasury  # Yahoo + full macro + fundamentals + factors + Treasury
 COMPOSE_PROFILES=schwab,sec-edgar                          # Schwab + EDGAR filings/insiders
 COMPOSE_PROFILES=yahoo,factor                              # Yahoo + Fama-French factors
 ```
@@ -233,6 +236,7 @@ exposes its MCP endpoint on:
 | `fed-calendar-connector`  | `http://localhost:8767` |
 | `sec-edgar-connector`     | `http://localhost:8768` |
 | `factor-connector`        | `http://localhost:8771` |
+| `treasury-connector`      | `http://localhost:8772` |
 
 `schwab-connector` and `yahoo-connector` both bind 8765 — that's why
 only one runs at a time. `fred-connector` and `fed-calendar-connector`

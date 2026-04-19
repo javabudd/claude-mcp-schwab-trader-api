@@ -36,12 +36,15 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   earlier. Worth it for release-day precision.
 - [ ] **bea_connector** — BEA direct (GDP components, personal
   income, trade balance). Same rationale as BLS.
-- [ ] **treasury_connector** — Treasury Direct / Fiscal Data API:
-  auction results (bid-to-cover, high yield, primary dealer takedown,
-  indirect/direct bidder share), Daily Treasury Statement (component-
-  level cash flows, TGA balance), debt-to-the-penny. Yield curve is
-  already covered by FRED (H.15: DGS1MO…DGS30, DFII real yields) — do
-  not duplicate.
+- [x] **treasury_connector** — shipped on port 8772. Treasury Fiscal
+  Data (`api.fiscaldata.treasury.gov`) auction results
+  (bid-to-cover, stop-out yield, primary-dealer takedown,
+  indirect/direct bidder share), Daily Treasury Statement (eight
+  tables — operating cash balance / TGA, deposits+withdrawals,
+  public-debt transactions, …), debt-to-the-penny. No credentials.
+  Yield curve routes to `fred_connector` (H.15: DGS1MO…DGS30, DFII
+  real yields) — not duplicated here. See
+  [mcp_servers/treasury_connector/AGENTS.md](mcp_servers/treasury_connector/AGENTS.md).
 - [ ] **eia_connector** — US Energy Information Administration:
   weekly petroleum status, natural gas storage, electricity. Critical
   for energy-name trades.
@@ -101,6 +104,7 @@ simple. Current + planned assignments:
 | 8769 | earnings                   | planned |
 | 8770 | news                       | planned |
 | 8771 | factor                     | shipped |
+| 8772 | treasury                   | shipped |
 | …    | …                          | …       |
 
 Claim the next free port when starting a new server. Update this

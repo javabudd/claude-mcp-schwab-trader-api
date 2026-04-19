@@ -77,9 +77,12 @@ traider/
 │   ├── sec_edgar_connector/     # SEC EDGAR: filings, Form 4 insider
 │   │                            #   transactions, 13F holdings, XBRL
 │   │                            #   company facts
-│   └── factor_connector/        # Ken French Data Library: Fama-French
-│                                #   factors, momentum, industry
-│                                #   portfolios (disk-cached)
+│   ├── factor_connector/        # Ken French Data Library: Fama-French
+│   │                            #   factors, momentum, industry
+│   │                            #   portfolios (disk-cached)
+│   └── treasury_connector/      # US Treasury Fiscal Data: auction
+│                                #   results, Daily Treasury Statement
+│                                #   (TGA), debt-to-the-penny
 └── logs/                     # runtime logs (cwd-relative per server)
 ```
 
@@ -163,6 +166,7 @@ servers can have incompatible deps without blocking each other.
 | [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
 | [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR: company filings (10-K/10-Q/8-K), Form 4 insider transactions, 13F institutional holdings, XBRL company facts and cross-sectional frames | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
 | [`factor_connector`](mcp_servers/factor_connector)             | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, and 5–49-industry portfolios (monthly + daily). Disk-cached, no credentials | [README](mcp_servers/factor_connector/README.md) · [AGENTS](mcp_servers/factor_connector/AGENTS.md) |
+| [`treasury_connector`](mcp_servers/treasury_connector)         | US Treasury Fiscal Data: securities auction results (bid-to-cover, dealer takedown, stop-out yield), Daily Treasury Statement (TGA + cash flows), debt-to-the-penny. No credentials. Yield curve routes to `fred_connector` | [README](mcp_servers/treasury_connector/README.md) · [AGENTS](mcp_servers/treasury_connector/AGENTS.md) |
 
 **Market-data backends are mutually exclusive.** `schwab_connector`
 and `yahoo_connector` expose identical tool names and both bind port
@@ -176,14 +180,22 @@ work around the gap — see the README's
 section for the full capability matrix.
 
 **`fred_connector`, `fed_calendar_connector`, `sec_edgar_connector`,
-and `factor_connector` are additive.** They expose different tool
-names, bind different ports (8766 / 8767 / 8768 / 8771), and run
-alongside either market-data backend. When a question has a macro
-dimension (release calendar, FOMC timing, long-run macro series), a
-fundamentals / filings / insider / 13F dimension, or a factor-model
-dimension (Fama-French exposures, industry-level context, factor
-attribution), reach for these even if the primary ask is about an
-equity — that's the "don't be a passive router" rule from the top of
-this document.
+`factor_connector`, and `treasury_connector` are additive.** They
+expose different tool names, bind different ports (8766 / 8767 / 8768
+/ 8771 / 8772), and run alongside either market-data backend. When a
+question has a macro dimension (release calendar, FOMC timing, long-
+run macro series), a fundamentals / filings / insider / 13F dimension,
+a factor-model dimension (Fama-French exposures, industry-level
+context, factor attribution), or a Treasury-primary-source dimension
+(auction demand, TGA cash flows, daily debt outstanding), reach for
+these even if the primary ask is about an equity — that's the "don't
+be a passive router" rule from the top of this document.
+
+**Routing note — yield curve lives on `fred_connector`.** FRED
+mirrors the H.15 Daily Treasury Yield Curve in full (`DGS1MO` …
+`DGS30`, `DFII*` for TIPS real yields). `treasury_connector` does
+**not** expose a yield-curve tool and should not be expected to; it
+covers the Treasury datasets FRED doesn't carry at useful
+granularity (auctions, DTS, debt-to-the-penny).
 
 Add new rows here as servers land.
