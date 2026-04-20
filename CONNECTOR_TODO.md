@@ -1,4 +1,4 @@
-# MCP_TODO.md — planned additions to the traider hub
+# CONNECTOR_TODO.md — planned additions to the traider hub
 
 Punch list of MCP servers to add, grouped by the gap each one fills.
 All entries inherit the hub-wide rules in
