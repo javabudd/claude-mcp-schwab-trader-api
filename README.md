@@ -1,22 +1,32 @@
 # traider
 
-A hub for using an AI CLI (Claude Code, OpenCode, Cowork, Gemini CLI,
-Cursor, Aider, …) to gain financial insights and help make trading
-decisions.
+`traider` is two things that only work together:
 
-`traider` itself doesn't trade. It's **one MCP server** that exposes
-read-only market data, account data, macro, fundamentals, and
-analytics as tools the model can call. You keep every decision; the
-model fetches, compiles, parses, and explains.
+1. **This repo's `AGENTS.md`.** When loaded into an AI CLI (Claude
+   Code, OpenCode, Cowork, Gemini CLI, Cursor, Aider, …), it reframes
+   the assistant as a **senior trading analyst** for you — how to
+   scope a question, what context to reach for, how to cite numbers,
+   what never to fabricate.
+2. **A single MCP server** you run yourself that exposes read-only
+   market data, account data, macro, fundamentals, filings, factor
+   returns, and news as tools the model can call. Without this, the
+   analyst framing has nothing to pull from and falls back on stale
+   training-data recall.
 
-See [AGENTS.md](AGENTS.md) for the hub's north star — what belongs
-here, what doesn't, and how to navigate the per-connector docs.
+`traider` itself doesn't trade. You keep every decision; the model
+fetches, compiles, parses, and explains.
+
+See [AGENTS.md](AGENTS.md) for the runtime analyst guidance that gets
+loaded into your AI CLI's context. Internals for modifying the code
+(how profiles load, how to add a connector) live in
+[DEVELOPING.md](DEVELOPING.md) and are intentionally not auto-loaded.
 
 ## Layout
 
 ```
 traider/
-├── AGENTS.md                 # hub north star (load into your AI CLI)
+├── AGENTS.md                 # analyst guidance (auto-loaded into your AI CLI)
+├── DEVELOPING.md             # dev overlay (not auto-loaded)
 ├── README.md                 # this file
 ├── Dockerfile                # single image for the unified server
 ├── docker-compose.yml        # one service, one port
@@ -227,7 +237,7 @@ Stdio variant: `"command": "traider", "args": ["--transport", "stdio"]`.
 Gemini CLI does not auto-load `.env` — export vars in your shell or
 list them under `"env"` in the server entry.
 
-## What this hub will and won't do
+## What traider will and won't do
 
 - **Will.** Fetch, align, and compute on market data. Explain what
   the numbers say. Flag regime shifts, correlations, mean-reversion
@@ -238,5 +248,5 @@ list them under `"env"` in the server entry.
   Silently retry past a 429 or paper over a failing dependency.
   Store credentials in the repo or in logs.
 
-See [AGENTS.md](AGENTS.md) for the full set of hub-wide constraints
-(which every connector module inherits).
+See [AGENTS.md](AGENTS.md) for the full set of traider-wide
+constraints (which every connector module inherits).
