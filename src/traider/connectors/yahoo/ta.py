@@ -64,19 +64,33 @@ def _run_one(
     except Exception as exc:
         raise ValueError(f"unknown TA-Lib indicator: {name!r}") from exc
 
-    # TA-Lib's abstract API strict-checks kwarg types against each
-    # parameter's default (e.g. BBANDS.nbdevup defaults to 2.0, so an
-    # int 2 is rejected). JSON can't distinguish int from float, so
-    # coerce numerics to the default's type before the call.
-    defaults = fn.parameters
-    for k, v in list(kwargs.items()):
-        if k not in defaults or isinstance(v, bool):
-            continue
-        default = defaults[k]
-        if isinstance(default, float) and isinstance(v, int):
-            kwargs[k] = float(v)
-        elif isinstance(default, int) and isinstance(v, float) and v.is_integer():
-            kwargs[k] = int(v)
+    # TA-Lib's abstract API strict-checks kwarg types (BBANDS.nbdevup
+    # wants float, SMA.timeperiod wants int). JSON can't distinguish,
+    # so we ask TA-Lib's own checker what each param accepts and flip
+    # int↔float if the caller guessed wrong. `fn.parameters` Python
+    # types drift between TA-Lib builds, so probing is more reliable
+    # than inferring from the default.
+    check_opt = getattr(fn, "_Function__check_opt_input_value", None)
+    if check_opt is not None:
+        for k, v in list(kwargs.items()):
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                continue
+            try:
+                check_opt(k, v)
+                continue
+            except TypeError:
+                pass
+            if isinstance(v, int):
+                alt: Any = float(v)
+            elif v.is_integer():
+                alt = int(v)
+            else:
+                continue
+            try:
+                check_opt(k, alt)
+                kwargs[k] = alt
+            except TypeError:
+                pass
 
     raw = fn(inputs, **kwargs)
 
