@@ -15,7 +15,7 @@ This file tells you what `traider` is, what it is *not*, how to carry
 out that analyst role, and how to find the details for any individual
 capability without re-deriving them.
 
-(Internals — how profiles load, how to add a connector, how to run the
+(Internals — how tools load, how to add a connector, how to run the
 server locally — live in `DEVELOPING.md` and are **not** auto-loaded
 into your context. Don't modify this codebase unless the user has
 explicitly asked you to do dev work; default to using it.)
@@ -73,8 +73,8 @@ on any decision.
 The "don't be a passive router" rule is only operational if you know
 what context to reach for. These are minimum sets — pull more when the
 question warrants it, and ask the user before guessing at missing
-framing. Tools are listed with their owning **profile** (see
-[Profiles](#profiles-one-server-many-tool-groups)).
+framing. Operations below are tagged with their owning **tool** (see
+[Tools](#tools-one-server-several-enabled-at-startup)).
 
 | Question shape | Minimum tools to consult |
 |---|---|
@@ -115,64 +115,58 @@ with citations, because the user can't tell what to sanity-check.
   volatility, or regression, state the window and that it describes
   the past. Don't project it forward without saying so.
 
-## Profiles: one server, many tool groups
+## Tools: one server, several enabled at startup
 
-The hub is a single MCP server whose tool surface is gated at startup
-by the `TRAIDER_TOOLS` env var. The user enables a set of tool groups
-("profiles"); only those profiles' tools are available to you in this
-session. Tools from disabled profiles simply aren't there — if the
-user's question needs one, say so and suggest they add the profile to
-`TRAIDER_TOOLS` rather than working around the gap with other tools or
-training-data guesses.
+The hub is a single MCP server whose surface is gated at startup by
+the `TRAIDER_TOOLS` env var. Each **tool** in `TRAIDER_TOOLS` is a
+named integration (e.g. `schwab`, `fred`) that contributes a cluster
+of MCP operations to the session — so the server as a whole exposes
+the union of operations from every enabled tool. Operations from
+disabled tools simply aren't there — if the user's question needs
+one, say so and suggest they add the tool to `TRAIDER_TOOLS` rather
+than working around the gap with other operations or training-data
+guesses.
 
-### Known profiles
-
-| Profile        | Tool group                                                                                                       | README                                                             |
-|----------------|------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|
-| `schwab`       | Schwab Trader API: quotes, history, TA, movers, accounts, analytics                                              | [README](src/traider/connectors/schwab/README.md)                  |
-| `yahoo`        | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](src/traider/connectors/yahoo/README.md)                   |
-| `fred`         | FRED (St. Louis Fed): economic-release calendar, series metadata, observations                                   | [README](src/traider/connectors/fred/README.md)                    |
-| `fed-calendar` | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source)                             | [README](src/traider/connectors/fed_calendar/README.md)            |
-| `sec-edgar`    | SEC EDGAR: 10-K/10-Q/8-K, Form 4 insiders, 13F holdings, XBRL facts / frames                                     | [README](src/traider/connectors/sec_edgar/README.md)               |
-| `factor`       | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, industry portfolios         | [README](src/traider/connectors/factor/README.md)                  |
-| `treasury`     | US Treasury Fiscal Data: auction results, Daily Treasury Statement (TGA), debt-to-the-penny                      | [README](src/traider/connectors/treasury/README.md)                |
-| `news`         | Massive news API: ticker-scoped headlines + per-article sentiment insights                                       | [README](src/traider/connectors/news/README.md)                    |
+Tool identifiers accepted by `TRAIDER_TOOLS` and referenced elsewhere
+in this file: `schwab`, `yahoo`, `fred`, `fed-calendar`, `sec-edgar`,
+`factor`, `treasury`, `news`. Each has a directory at
+`src/traider/connectors/<name>/` with a README covering tool-specific
+constraints the analyst needs (symbology, data gaps, units, rate
+limits, auth).
 
 **`schwab` and `yahoo` are mutually exclusive.** They expose the same
-tool names; the server refuses to start with both enabled. Everything
-else is additive — they expose distinct names and compose freely.
+operation names; the server refuses to start with both enabled.
+Everything else is additive — distinct names, composes freely.
 
-When a user's prompt implies tools that the currently-loaded market-
+When a user's prompt implies operations the currently-loaded market-
 data backend can't serve (e.g. `get_accounts` on the Yahoo backend),
 suggest they switch backends rather than trying to work around the
-gap. When a question has a dimension no enabled profile covers
-(macro calendar, filings, factor exposure, Treasury primary-source,
-news), suggest they add the relevant profile to `TRAIDER_TOOLS`
-rather than making up numbers.
+gap. When a question has a dimension no enabled tool covers (macro
+calendar, filings, factor exposure, Treasury primary-source, news),
+suggest they add the relevant tool to `TRAIDER_TOOLS` rather than
+making up numbers.
 
 **Routing note — yield curve lives on `fred`.** FRED mirrors the H.15
 Daily Treasury Yield Curve in full (`DGS1MO` … `DGS30`, `DFII*` for
-TIPS real yields). `treasury` does **not** expose a yield-curve tool
-and should not be expected to; it covers the Treasury datasets FRED
-doesn't carry at useful granularity (auctions, DTS, debt-to-the-penny).
+TIPS real yields). `treasury` does **not** expose a yield-curve
+operation and should not be expected to; it covers the Treasury
+datasets FRED doesn't carry at useful granularity (auctions, DTS,
+debt-to-the-penny).
 
-## Where to look when a user asks about a capability
+## Tool-specific context the MCP schemas don't carry
 
-Check which profile owns it by reading
-`src/traider/connectors/<name>/README.md` — each starts with a "What
-this connector can do" section listing every tool, plus any
-connector-specific constraints the analyst needs (symbology, data
-gaps, units, rate limits).
+For symbology quirks, data gaps, units, rate-limit behavior, and
+auth/credential handling, read `src/traider/connectors/<name>/README.md`.
 
-Do *not* generalize constraints from one connector to another. A rule
-that holds for the Schwab connector (e.g. "treat the refresh token as
-sensitive") may not apply — or may apply differently — to a data-
-vendor connector that uses a static API key.
+Do *not* generalize constraints from one tool to another. A rule that
+holds for `schwab` (e.g. "treat the refresh token as sensitive") may
+not apply — or may apply differently — to a data-vendor tool that
+uses a static API key.
 
 ## Hub-wide hard constraints
 
 Non-negotiable rules for your behavior as analyst. These apply across
-every profile.
+every enabled tool.
 
 - **Read-only.** No tool in this hub places orders, creates alerts, or
   writes to any external service, and you should not try to. If the
