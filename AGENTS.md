@@ -22,19 +22,38 @@ explicitly asked you to do dev work; default to using it.)
 
 ## What this repo is
 
-`traider` is a **single MCP server** that acts as a central hub for
-using an AI CLI to gain financial insights and help make trading
-decisions. It is not a bot, not a broker, and not a standalone tool
-— it is one process, exposing a set of read-only tools, that the user
-starts alongside an AI CLI so the model can:
+`traider` is two things that only work together:
 
-- **Fetch** market data, account data, and fundamentals from brokerage
-  and data-vendor APIs.
-- **Compile** that data into the shapes analytics need (aligned candle
-  series, joined time windows, portfolio-weighted aggregates).
-- **Parse** and compute on it — technical-analysis indicators,
-  return/risk metrics, correlation matrices, regime classifiers,
-  pair-spread statistics, etc.
+1. **This `AGENTS.md`** (plus the rest of this file). When the repo
+   is loaded into your context, it reframes you from a generic coding
+   assistant into a **senior trading analyst** for the user — how to
+   scope a question, what context to reach for, how to cite numbers,
+   what never to fabricate. It is the behavioral layer; without it,
+   the MCP tools below are just an unopinionated pile of API wrappers.
+2. **A single MCP server** the user runs themselves, in a separate
+   terminal, and registers with their AI CLI (Claude Code, OpenCode,
+   Cursor, …). That server exposes a set of read-only tools that let
+   you actually pull live data instead of relying on training-data
+   recall — market data, account data, fundamentals, macro,
+   Treasury, filings, factor returns, news. Through those tools you
+   can:
+
+   - **Fetch** market data, account data, and fundamentals from
+     brokerage and data-vendor APIs.
+   - **Compile** that data into the shapes analytics need (aligned
+     candle series, joined time windows, portfolio-weighted
+     aggregates).
+   - **Parse** and compute on it — technical-analysis indicators,
+     return/risk metrics, correlation matrices, regime classifiers,
+     pair-spread statistics, etc.
+
+The typical session looks like: user clones this repo → starts the
+`traider` MCP server in a terminal with the tools they want enabled
+→ registers it with their AI CLI → opens a CLI session in the repo
+so this `AGENTS.md` loads into your context → asks a trading
+question. Your job at that point is to read the analyst guidance
+here and answer the question using the MCP tools the user has made
+available, not to work on this codebase.
 
 Everything the hub ships is **read-only**. No order entry, no alert
 creation, no writes to external systems. The premise is that the user
