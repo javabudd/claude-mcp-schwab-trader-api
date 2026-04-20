@@ -1,206 +1,57 @@
-# traider MCP-server hub
+# traider — unified MCP server hub
 #
-# Each MCP server under ./mcp_servers/<name>/ has its own Dockerfile and
-# a service entry here. All services are read-only bridges (no order
-# entry, no writes) — see ./AGENTS.md.
+# One image, one service, one port. Which tool groups are exposed is
+# controlled by TRAIDER_PROFILES in ./.env. Example:
 #
-# The user runs each server in the background and points their AI CLI at
-# the exposed HTTP endpoint. stdio transport is not useful from a
-# container, so every service here uses streamable-http.
+#   TRAIDER_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 #
-# -----------------------------------------------------------------------
-# Choosing a market-data backend
-# -----------------------------------------------------------------------
+# Valid profile names: schwab, yahoo, fred, fed-calendar, sec-edgar,
+# factor, treasury, news. schwab and yahoo are mutually exclusive
+# market-data backends — enabling both at once is an error.
 #
-# schwab-connector and yahoo-connector expose the same tool surface and
-# both bind port 8765 — only one should run at a time. Selection is by
-# Docker Compose profile, driven by COMPOSE_PROFILES in ./.env:
-#
-#   COMPOSE_PROFILES=schwab   # uses Schwab (needs developer account)
-#   COMPOSE_PROFILES=yahoo    # uses Yahoo Finance (no account needed)
-#
-# Additive servers (fred-connector, fed-calendar-connector,
-# sec-edgar-connector, factor-connector, treasury-connector) live on
-# different ports and can run alongside either backend. Combine
-# profiles with a comma:
-#
-#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
-#
-# Then, from the repo root (where this file lives):
+# Compose auto-loads ./.env, so no --env-file flag is needed.
 #
 #   docker compose up -d
 #
-# Compose auto-loads `./.env` from the project directory, so no
-# `--env-file` flag is needed.
+# First-time Schwab OAuth (only if the schwab profile is active) is an
+# interactive one-shot:
 #
-# Without any market-data profile set, no backend starts (Compose only
-# launches services whose profile is active). If both schwab+yahoo
-# profiles are activated by accident, the second service fails to bind
-# 8765 — that's the intended signal that the hub is single-backend by
-# design.
+#   docker compose run --rm traider traider auth schwab
 #
-# First-time OAuth (Schwab only) is an interactive step:
-#
-#   docker compose run --rm schwab-connector schwab-connector auth
-#
-# That writes the token file to ~/.schwab-connector/ on the host, and
-# a later `docker compose up` reuses it.
+# That writes the token file to ~/.schwab-connector/ on the host and a
+# later `docker compose up` reuses it.
 
 name: traider
 
 services:
-  schwab-connector:
-    profiles: ["schwab"]
+  traider:
     build:
-      context: ./mcp_servers/schwab_connector
-    image: traider/schwab-connector:latest
+      context: .
+    image: traider:latest
     env_file:
       - ./.env
     environment:
+      TRAIDER_LOG_DIR: /app/logs
+      # Default token location for the schwab profile. Overridable via
+      # SCHWAB_TOKEN_FILE in ./.env if the user stores the token
+      # somewhere non-standard.
       SCHWAB_TOKEN_FILE: /tokens/schwab-token.json
-      SCHWAB_CONNECTOR_LOG: /app/logs/schwab-connector.log
-    volumes:
-      # OAuth token file (rw — the server rewrites it when the access
-      # token refreshes). Host path matches the default the CLI uses
-      # when you run `schwab-connector auth` outside docker, so the
-      # two modes share the same token.
-      - ${HOME}/.schwab-connector:/tokens
-      # Server logs, visible on the host at ./logs.
-      - ./logs:/app/logs
-    ports:
-      - "8765:8765"
-    stdin_open: true
-    tty: true
-    restart: unless-stopped
-
-  yahoo-connector:
-    profiles: ["yahoo"]
-    build:
-      context: ./mcp_servers/yahoo_connector
-    image: traider/yahoo-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      YAHOO_CONNECTOR_LOG: /app/logs/yahoo-connector.log
-    volumes:
-      - ./logs:/app/logs
-    ports:
-      - "8765:8765"
-    restart: unless-stopped
-
-  # Additive: macro / economic-release data from FRED. Runs on 8766 so
-  # it sits alongside whichever market-data backend is active. Needs
-  # FRED_API_KEY in ./.env (free, from fredaccount.stlouisfed.org).
-  fred-connector:
-    profiles: ["fred"]
-    build:
-      context: ./mcp_servers/fred_connector
-    image: traider/fred-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      FRED_CONNECTOR_LOG: /app/logs/fred-connector.log
-    volumes:
-      - ./logs:/app/logs
-    ports:
-      - "8766:8766"
-    restart: unless-stopped
-
-  # Additive: FOMC meeting calendar scraped from federalreserve.gov.
-  # Runs on 8767. No credentials.
-  fed-calendar-connector:
-    profiles: ["fed-calendar"]
-    build:
-      context: ./mcp_servers/fed_calendar_connector
-    image: traider/fed-calendar-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      FED_CALENDAR_CONNECTOR_LOG: /app/logs/fed-calendar-connector.log
-    volumes:
-      - ./logs:/app/logs
-    ports:
-      - "8767:8767"
-    restart: unless-stopped
-
-  # Additive: SEC EDGAR filings, Form 4 insider transactions, 13F
-  # institutional holdings, XBRL company facts. Runs on 8768. No API
-  # key — but SEC requires a descriptive User-Agent with contact
-  # email, configured via SEC_EDGAR_USER_AGENT in ./.env. The client
-  # refuses to start without it.
-  sec-edgar-connector:
-    profiles: ["sec-edgar"]
-    build:
-      context: ./mcp_servers/sec_edgar_connector
-    image: traider/sec-edgar-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      SEC_EDGAR_CONNECTOR_LOG: /app/logs/sec-edgar-connector.log
-    volumes:
-      - ./logs:/app/logs
-    ports:
-      - "8768:8768"
-    restart: unless-stopped
-
-  # Additive: Ken French Data Library — Fama-French factors, momentum,
-  # industry portfolios. Runs on 8771. No credentials. Fetches ZIP-
-  # wrapped CSVs from mba.tuck.dartmouth.edu and caches them on disk
-  # (24h TTL by default); override the cache location with
-  # FACTOR_CACHE_DIR in ./.env.
-  factor-connector:
-    profiles: ["factor"]
-    build:
-      context: ./mcp_servers/factor_connector
-    image: traider/factor-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      FACTOR_CONNECTOR_LOG: /app/logs/factor-connector.log
+      # Factor profile caches Ken French ZIPs here across restarts.
       FACTOR_CACHE_DIR: /cache
     volumes:
+      # Schwab OAuth token file (rw — the client rewrites it when the
+      # access token refreshes). Host path matches the default the
+      # auth flow uses when run outside docker, so the two modes
+      # share the same token.
+      - ${HOME}/.schwab-connector:/tokens
+      # Per-connector log files live under ./logs on the host.
       - ./logs:/app/logs
       # Disk cache for Ken French ZIPs. Persisting across container
       # restarts is the whole point of the cache — without this volume
       # every restart would re-fetch the full set.
-      - ${HOME}/.cache/traider-factor-connector:/cache
+      - ${HOME}/.cache/traider-factor:/cache
     ports:
-      - "8771:8771"
-    restart: unless-stopped
-
-  # Additive: Massive news API — ticker-scoped headlines with
-  # publisher metadata and per-article sentiment. Runs on 8770.
-  # Needs MASSIVE_API_KEY in ./.env (register at massive.com).
-  news-connector:
-    profiles: ["news"]
-    build:
-      context: ./mcp_servers/news_connector
-    image: traider/news-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      NEWS_CONNECTOR_LOG: /app/logs/news-connector.log
-    volumes:
-      - ./logs:/app/logs
-    ports:
-      - "8770:8770"
-    restart: unless-stopped
-
-  # Additive: US Treasury Fiscal Data — auction results, Daily Treasury
-  # Statement (TGA balance, cash flows), debt-to-the-penny. Runs on
-  # 8772. No credentials (Fiscal Data is unauthenticated). Yield-curve
-  # queries route to fred-connector, not here.
-  treasury-connector:
-    profiles: ["treasury"]
-    build:
-      context: ./mcp_servers/treasury_connector
-    image: traider/treasury-connector:latest
-    env_file:
-      - ./.env
-    environment:
-      TREASURY_CONNECTOR_LOG: /app/logs/treasury-connector.log
-    volumes:
-      - ./logs:/app/logs
-    ports:
-      - "8772:8772"
+      - "8765:8765"
+    stdin_open: true
+    tty: true
     restart: unless-stopped
