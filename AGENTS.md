@@ -87,23 +87,38 @@ missing context is a failure mode. This is about **analysis depth** —
 it does not relax the read-only rule or take the user out of the loop
 on any decision.
 
-## Common question shapes and the minimum tool set
+## Common question shapes and how to decompose them
 
 The "don't be a passive router" rule is only operational if you know
-what context to reach for. These are minimum sets — pull more when the
-question warrants it, and ask the user before guessing at missing
-framing. Operations below are tagged with their owning **tool** (see
+what dimensions of analysis a trading question actually requires.
+Your job on a question like *"Is SPY a buy here?"* is not to call the
+one quote tool and answer — it's to decompose the question into the
+dimensions a senior analyst would weigh, then map each dimension to
+whatever loaded tools can serve it. A simple prompt should fan out
+into a deep, multi-tool analysis, not collapse to a single call.
+
+The table below lists the dimensions for common question shapes.
+They are minimum sets — pull more when the question warrants it, and
+ask the user before guessing at missing framing. The table
+deliberately names no tools; which tool covers which dimension
+depends on what the user has enabled (see
 [Tools](#tools-one-server-several-enabled-at-startup)).
 
-| Question shape | Minimum tools to consult |
+| Question shape | Dimensions to analyze |
 |---|---|
-| *"Should I buy / sell / hold X?"* | quote + price history + TA (`schwab`/`yahoo`), recent filings and insider activity (`sec-edgar`), factor exposure (`factor`), recent headlines + sentiment (`news`), upcoming catalysts (`fed-calendar`, `fred` release schedule), existing position + correlation to book (`schwab`, if account-linked) |
-| *"How is my portfolio doing?"* (Schwab backend) | `get_accounts`, per-position returns/volatility, correlation matrix across holdings, benchmark comparison, factor exposure of the book |
-| *"What's the macro setup right now?"* | upcoming high-impact releases (`fred`), next FOMC (`fed-calendar`), recent auction demand + TGA cash (`treasury`), yield curve (`fred` `DGS*`) |
-| *"Explain this move in X."* | price history around the move (`schwab`/`yahoo`), 8-Ks / filings in the window (`sec-edgar`), headlines + sentiment in the window (`news`), sector / factor returns same window (`factor`), any macro release that day (`fred`) |
-| *"Is X overvalued / undervalued?"* | XBRL company facts (`sec-edgar`), industry portfolio returns (`factor`), price history + relative strength (`schwab`/`yahoo`) |
+| *"Should I buy / sell / hold X?"* | current price and recent action; technical signals (trend, support/resistance, momentum, volatility regime); fundamentals and valuation; recent filings and insider activity; factor and sector/industry exposure; news flow and sentiment; upcoming catalysts (earnings, macro releases, FOMC); existing position and correlation to the user's book |
+| *"How is my portfolio doing?"* | holdings and current values; per-position returns and volatility; concentration and correlation structure; drawdown and benchmark comparison; factor exposure of the book; upcoming catalysts across holdings |
+| *"What's the macro setup right now?"* | upcoming high-impact data releases; next FOMC meeting and recent Fed commentary; yield curve level and shape; recent Treasury auction demand and TGA cash; equity / bond / FX / commodity regime |
+| *"Explain this move in X."* | price and volume around the move; filings in the window; headlines and sentiment in the window; sector and factor returns same window; macro releases that day; peer and correlated-asset moves |
+| *"Is X overvalued / undervalued?"* | fundamentals from filings (XBRL facts, recent reports); valuation ratios vs. history and vs. peers/industry; price trend and relative strength; factor / style exposure |
 
-If the question doesn't fit any of these cleanly, that's a cue to ask
+For each dimension, check whether a loaded tool can supply it. If
+one can, pull it; if multiple can, pick the one whose semantics best
+match the dimension. If no loaded tool covers a dimension, name the
+gap in your answer — don't silently drop the dimension, and don't
+fill it from training data.
+
+If the question doesn't fit any shape cleanly, that's a cue to ask
 a clarifying question before pulling data — not to invent a framing.
 
 ## How to present findings
