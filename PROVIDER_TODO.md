@@ -43,16 +43,28 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   *not* wrapped — quotes stay on the market-data backends. See
   [src/traider/providers/news/README.md](src/traider/providers/news/README.md).
   Sentiment is Massive's model output; quote it with attribution.
-- [ ] **estimates** — Analyst consensus EPS / revenue estimates,
-  price targets, revisions breadth, upgrade/downgrade actions.
-  `earnings` tells you the surprise after the fact; `estimates` is
-  what lets you frame *"where are expectations sitting?"* and
-  *"is the Street too bullish into this print?"* — one of the top
-  gaps on single-name analysis today. Candidates: Finnhub paid tier
-  (cleanest extension of the existing provider), Benzinga ratings
-  API, Zacks RSS (free but shallow), Nasdaq Data Link / Tiingo.
-  Land alongside the `earnings` module since they share sourcing
-  and symbology.
+- [~] **estimates** — Partial. Shipped as a provider module wrapping
+  Finnhub's free-tier ``/stock/recommendation`` (monthly sell-side
+  rating distribution: strong-buy / buy / hold / sell / strong-sell
+  counts per ticker). Reuses the ``FINNHUB_API_KEY`` from the
+  ``earnings`` provider — one key, both providers, shared
+  60 req/min budget. See
+  [src/traider/providers/estimates/README.md](src/traider/providers/estimates/README.md).
+
+  Still gapped (all premium on Finnhub, return 403 on the free
+  key): **price targets** (``/stock/price-target``),
+  **upgrade/downgrade actions** (``/stock/upgrade-downgrade``),
+  **consensus EPS / revenue estimates** (``/stock/eps-estimate``,
+  ``/stock/revenue-estimate``). Rating-revision breadth is covered
+  by the shipped endpoint; EPS-revision breadth is not. Upgrading
+  the Finnhub plan is the cleanest way to close these gaps — each
+  paid endpoint is a one-method extension of the existing
+  ``finnhub_client.py``. Alternative sources if Finnhub never
+  upgrades: Benzinga ratings API (paid), Tiingo (free tier has
+  consensus estimates), Nasdaq Data Link / ZEE (paid). Zacks was
+  evaluated and rejected: the public site does not expose
+  per-ticker RSS feeds for estimates data — "Zacks RSS" in the
+  wild is third-party scraping, not a primary source.
 - [ ] **transcripts** — Earnings call transcripts (prepared remarks
   + Q&A) for management tone, guidance language, and cross-quarter
   diffs. No clean free primary source: AlphaSense and Seeking

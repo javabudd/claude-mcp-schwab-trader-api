@@ -43,7 +43,8 @@ traider/
 │       ├── factor/           # Ken French data library
 │       ├── treasury/         # US Treasury Fiscal Data
 │       ├── news/             # Massive news API
-│       └── earnings/         # Finnhub earnings calendar + surprises
+│       ├── earnings/         # Finnhub earnings calendar + surprises
+│       └── estimates/        # Finnhub analyst recommendation trends
 └── logs/                     # per-provider runtime logs
 ```
 
@@ -72,6 +73,7 @@ TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 | `treasury`     | Treasury auctions, DTS, debt      | None                            |
 | `news`         | Massive news + sentiment          | `MASSIVE_API_KEY` (free tier)   |
 | `earnings`     | Finnhub earnings calendar + surprises | `FINNHUB_API_KEY` (free tier) |
+| `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
 
 Rules:
 

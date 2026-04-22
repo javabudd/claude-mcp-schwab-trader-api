@@ -25,6 +25,7 @@ touching the code.
   - [treasury](#treasury)
   - [news](#news)
   - [earnings](#earnings)
+  - [estimates](#estimates)
 
 ---
 
@@ -100,6 +101,10 @@ src/traider/
       __init__.py
       tools.py
       finnhub_client.py    # httpx wrapper around Finnhub calendar/earnings
+    estimates/
+      __init__.py
+      tools.py
+      finnhub_client.py    # httpx wrapper around Finnhub /stock/recommendation
 ```
 
 Each provider is **self-contained under its directory** — imports
@@ -925,3 +930,65 @@ less request — free tier returns 401 without the token.
 - Don't reshape the Finnhub JSON beyond adding the ``source`` /
   ``fetched_at`` envelope. The model reads raw fields
   (``hour``, ``epsEstimate``, ``surprisePercent``) directly.
+
+### estimates
+
+**What it is.** Read-only bridge to Finnhub's analyst-recommendation
+endpoint. One free-tier endpoint:
+
+- ``/stock/recommendation`` — monthly sell-side rating distribution
+  per ticker (strong-buy / buy / hold / sell / strong-sell counts).
+
+Finnhub's other estimates endpoints (``/stock/price-target``,
+``/stock/upgrade-downgrade``, ``/stock/eps-estimate``,
+``/stock/revenue-estimate``) all require a paid plan and return 403
+with a free key — they are deliberately not wired. Upgrading the key
+later is a one-method extension of ``finnhub_client.py``.
+
+The client is a near-duplicate of ``earnings/finnhub_client.py`` —
+same auth header, same error handling, same rate-limit story. They
+are intentionally separate so either provider can load without the
+other (the hub rule: providers don't import from each other).
+
+**Secrets.** ``FINNHUB_API_KEY``, shared with the ``earnings``
+provider. One key, both providers. Do not log it.
+
+**Things that will bite you.**
+
+- **Shared rate-limit budget.** 60 req/min is enforced per key
+  across *all* Finnhub endpoints, so enabling both ``earnings`` and
+  ``estimates`` means their calls compete for the same budget. A
+  fan-out in one will 429 the other. Propagate, don't retry.
+- **Free-tier gap is load-bearing.** Users will ask for price
+  targets, upgrade/downgrade actions, and consensus EPS. None of
+  those are reachable. The tool docstring and the provider README
+  call this out — do not paper over by reconstructing from training
+  data or another provider. Surface the gap, let the user decide
+  whether to pay for the tier.
+- **Unknown tickers return ``200 []``, not a 404.** Don't treat an
+  empty list as an error — surface it as "no coverage" to the user.
+  Conversely, don't retry a ticker that returned ``[]`` in hopes of
+  different data; the list is authoritative for the moment.
+- **Period is month-start, not month-end.** ``period: "2026-04-01"``
+  is the April 2026 snapshot. Sort newest-first by that date; don't
+  assume the upstream already sorted.
+- **Rating counts aren't EPS revisions.** Month-over-month deltas in
+  the five buckets are *rating*-revision breadth. The lay reading
+  ("analysts are revising up") conflates this with EPS-estimate
+  revisions, which this endpoint does **not** cover. Keep the two
+  labels distinct in any analyst output.
+
+**What not to do.**
+
+- Don't add an OAuth flow — Finnhub is a static API key.
+- Don't silently fall back to the Yahoo / Schwab analyst fields or
+  to training data when the paid endpoints 403. Raise / surface the
+  403.
+- Don't cache responses silently. Rating trends shift
+  month-to-month; a stale cache hit feeds wrong distributions into
+  recommendations.
+- Don't reshape the Finnhub JSON beyond adding the ``source`` /
+  ``fetched_at`` / ``symbol`` / ``trends`` envelope.
+- Don't merge this provider into ``earnings``. Separate providers
+  keep the load costs and failure modes independent — a 403 on one
+  endpoint shouldn't poison the other.
