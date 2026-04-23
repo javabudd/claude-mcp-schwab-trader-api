@@ -8,6 +8,7 @@ hours).
 from __future__ import annotations
 
 import atexit
+import datetime as _dt
 import logging
 from typing import Any
 
@@ -32,6 +33,10 @@ def _get_client() -> YahooClient:
         atexit.register(_client.close)
         logger.info("Yahoo client ready")
     return _client
+
+
+def _now_iso() -> str:
+    return _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds")
 
 
 def _fetch_candles(
@@ -181,6 +186,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "run_technical_analysis symbol=%s indicators=%s tail=%s",
             symbol, [i.get("name") for i in indicators], tail,
         )
+        fetched_at = _now_iso()
         try:
             history = _get_client().get_price_history(
                 symbol,
@@ -201,7 +207,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "run_technical_analysis result symbol=%s candles=%d labels=%s",
             symbol, len(candles), list(result["indicators"].keys()),
         )
-        return {"symbol": symbol, **result}
+        return {"symbol": symbol, "fetched_at": fetched_at, **result}
 
     @mcp.tool()
     def get_option_chain(
@@ -304,6 +310,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_option_chain symbol=%s wings=%d top_n=%d",
             symbol, wings, top_n,
         )
+        fetched_at = _now_iso()
         try:
             chain = _get_client().get_option_chain(
                 symbol,
@@ -321,6 +328,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_option_chain failed symbol=%s", symbol)
             raise
+        summary["fetched_at"] = fetched_at
         return summary
 
     @mcp.tool()
@@ -426,6 +434,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         """Return/risk summary: total/annual return, vol, Sharpe, Sortino,
         max drawdown, Calmar, skew, excess kurtosis."""
         logger.info("analyze_returns symbol=%s", symbol)
+        fetched_at = _now_iso()
         try:
             candles = _fetch_candles(
                 symbol, period_type, period, frequency_type, frequency,
@@ -437,7 +446,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_returns failed symbol=%s", symbol)
             raise
-        return {"symbol": symbol, **result}
+        return {"symbol": symbol, "fetched_at": fetched_at, **result}
 
     @mcp.tool()
     def analyze_correlation(
@@ -452,6 +461,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
     ) -> dict[str, Any]:
         """Pearson correlation matrix of log returns across ``symbols``."""
         logger.info("analyze_correlation symbols=%s", symbols)
+        fetched_at = _now_iso()
         try:
             candles_by_symbol = {
                 sym: _fetch_candles(
@@ -460,10 +470,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 )
                 for sym in symbols
             }
-            return analytics.correlation_matrix(candles_by_symbol)
+            result = analytics.correlation_matrix(candles_by_symbol)
         except Exception:
             logger.exception("analyze_correlation failed symbols=%s", symbols)
             raise
+        return {"fetched_at": fetched_at, **result}
 
     @mcp.tool()
     def analyze_beta(
@@ -481,6 +492,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         """Beta, annualized alpha, R², and correlation of ``symbol`` vs
         ``benchmark``."""
         logger.info("analyze_beta symbol=%s benchmark=%s", symbol, benchmark)
+        fetched_at = _now_iso()
         try:
             a = _fetch_candles(
                 symbol, period_type, period, frequency_type, frequency,
@@ -494,7 +506,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_beta failed symbol=%s vs %s", symbol, benchmark)
             raise
-        return {"symbol": symbol, "benchmark": benchmark, **result}
+        return {
+            "symbol": symbol,
+            "benchmark": benchmark,
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_volatility_regime(
@@ -515,6 +532,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_volatility_regime symbol=%s short=%d lookback=%d",
             symbol, short_window, lookback,
         )
+        fetched_at = _now_iso()
         try:
             candles = _fetch_candles(
                 symbol, period_type, period, frequency_type, frequency,
@@ -529,7 +547,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_volatility_regime failed symbol=%s", symbol)
             raise
-        return {"symbol": symbol, **result}
+        return {"symbol": symbol, "fetched_at": fetched_at, **result}
 
     @mcp.tool()
     def analyze_zscore(
@@ -550,6 +568,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_zscore symbol=%s window=%d source=%s tail=%s",
             symbol, window, source, tail,
         )
+        fetched_at = _now_iso()
         try:
             candles = _fetch_candles(
                 symbol, period_type, period, frequency_type, frequency,
@@ -562,7 +581,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "zscore" in result:
             result["datetime"] = result["datetime"][-tail:]
             result["zscore"] = result["zscore"][-tail:]
-        return {"symbol": symbol, **result}
+        return {"symbol": symbol, "fetched_at": fetched_at, **result}
 
     @mcp.tool()
     def analyze_pair_spread(
@@ -584,6 +603,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_pair_spread a=%s b=%s window=%d hedge=%s",
             symbol_a, symbol_b, zscore_window, hedge_ratio,
         )
+        fetched_at = _now_iso()
         try:
             a = _fetch_candles(
                 symbol_a, period_type, period, frequency_type, frequency,
@@ -604,6 +624,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             result["spread"] = result["spread"][-tail:]
             result["zscore"] = result["zscore"][-tail:]
         result["symbols"] = [symbol_a, symbol_b]
+        result["fetched_at"] = fetched_at
         return result
 
     @mcp.tool()
@@ -688,6 +709,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_session_ranges symbol=%s tz=%s tight_lookback=%d mult=%.2f tail=%s",
             symbol, timezone, tight_lookback, tight_multiplier, tail,
         )
+        fetched_at = _now_iso()
         try:
             candles = _fetch_candles(
                 symbol, period_type, period, frequency_type, frequency,
@@ -711,4 +733,4 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "days" in result:
             result["days"] = result["days"][-tail:]
             result["n_days"] = len(result["days"])
-        return {"symbol": symbol, **result}
+        return {"symbol": symbol, "fetched_at": fetched_at, **result}

@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("treasury_provider.fiscal")
+logger = logging.getLogger("traider.treasury.fiscal")
 
 _BASE_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
 

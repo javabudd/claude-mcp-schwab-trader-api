@@ -1,8 +1,7 @@
 """Interactive OAuth 2.0 authorization-code flow for the Schwab API.
 
-Run via ``schwab-connector auth`` (or ``python -m schwab_connector auth``).
-Writes the resulting access/refresh tokens to the token file consumed
-by ``SchwabClient``.
+Run via ``traider auth schwab``. Writes the resulting access/refresh
+tokens to the token file consumed by ``SchwabClient``.
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ from .schwab_client import (
     SCHWAB_TOKEN_URL,
 )
 
-logger = logging.getLogger("schwab_provider.auth")
+logger = logging.getLogger("traider.schwab.auth")
 
 
 def run_auth_flow() -> None:

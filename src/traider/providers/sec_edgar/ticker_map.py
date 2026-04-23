@@ -21,7 +21,7 @@ from typing import Any
 
 from .edgar_client import SecEdgarClient, SecEdgarError
 
-logger = logging.getLogger("sec_edgar_provider.ticker_map")
+logger = logging.getLogger("traider.sec_edgar.ticker_map")
 
 _DEFAULT_TTL_SECONDS = 24 * 60 * 60
 

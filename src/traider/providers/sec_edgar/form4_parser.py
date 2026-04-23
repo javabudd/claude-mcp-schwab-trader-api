@@ -39,7 +39,7 @@ from typing import Any
 
 from lxml import etree
 
-logger = logging.getLogger("sec_edgar_provider.form4")
+logger = logging.getLogger("traider.sec_edgar.form4")
 
 
 class Form4ParseError(RuntimeError):

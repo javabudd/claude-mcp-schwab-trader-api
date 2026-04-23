@@ -495,54 +495,16 @@ most of these examples intentionally pull from several at once.
   one, the tool raises (HTTP 429) — the server won't silently retry.
 - **Token expiry.** Access tokens auto-refresh. Refresh tokens die
   after ~7 days of inactivity — if you see `SchwabAuthError`, re-run
-  `schwab-connector auth`.
+  `traider auth schwab`.
 
 ## Setup
 
-### 1. Install conda
+The environment, install, and server-launch flow live in the root
+[README](../../../README.md#quickstart) (Docker and host paths). This
+section covers only what's specific to schwab: registering a developer
+app, wiring the credentials, and running the one-time OAuth bootstrap.
 
-If you don't already have it, install **Miniforge** (community conda
-distribution, permissive license, fast solver):
-
-- macOS / Linux / WSL:
-  ```bash
-  curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-  bash Miniforge3-$(uname)-$(uname -m).sh
-  ```
-- Windows: download the installer from
-  <https://github.com/conda-forge/miniforge/releases/latest> and run it.
-
-Miniconda works fine too if you already have it —
-<https://docs.conda.io/en/latest/miniconda.html>.
-
-Restart your shell (or `source ~/.bashrc` / `source ~/.zshrc`) so
-`conda` is on your PATH.
-
-### 2. Create the `traider` environment
-
-The project always uses an env named `traider`, pinned to Python 3.13:
-
-```bash
-conda create -n traider python=3.13
-conda activate traider
-```
-
-Every subsequent command in this repo (including `pip install`,
-`schwab-connector`, any test runner) assumes this env is active.
-
-### 3. Install the package
-
-From the `traider` repo root:
-
-```bash
-conda activate traider
-pip install -e ./mcp_servers/schwab_connector
-```
-
-(Or `cd` into `mcp_servers/schwab_connector` first and run
-`pip install -e .` — same result.)
-
-### 4. Register a Schwab developer app
+### 1. Register a Schwab developer app
 
 The provider authenticates as an OAuth app you own on the Schwab
 developer portal. You need to create that app once before anything
@@ -562,7 +524,7 @@ else works.
 3. **Submit for approval.** New apps start in `Approved - Pending`
    and have to flip to `Ready For Use` before the keys work. This
    usually takes a few minutes to a couple of days; you can't
-   shortcut it. If `schwab-connector auth` returns `invalid_client`,
+   shortcut it. If `traider auth schwab` returns `invalid_client`,
    the app is still pending.
 4. **Copy the App Key and Secret** from the app's detail page once it
    is `Ready For Use`. The key is public-ish (it's the OAuth
@@ -570,9 +532,9 @@ else works.
    into chat, logs, or anything committed to git.
 5. **Rotating credentials.** If you regenerate the secret in the
    portal, existing tokens are invalidated — you'll need to re-run
-   `schwab-connector auth`.
+   `traider auth schwab`.
 
-### 5. Configure Schwab credentials
+### 2. Configure Schwab credentials
 
 Either export the vars directly:
 
@@ -591,39 +553,40 @@ SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 ```
 
-### 6. Authorize once, then run the server
+### 3. Authorize once
+
+`traider auth schwab` is the interactive OAuth bootstrap. It opens
+your browser, you log into Schwab, and you paste the redirect URL
+back into the terminal. It writes `schwab-token.json` (access +
+refresh token) and exits.
 
 ```bash
-schwab-connector auth             # browser flow, paste redirected URL
-schwab-connector                  # start the MCP server on stdio
+traider auth schwab
 ```
 
-Or expose it over HTTP for remote MCP clients:
+Inside Docker:
 
 ```bash
-schwab-connector --transport streamable-http --port 8765
+docker compose run --rm traider auth schwab
 ```
 
-### `schwab-connector auth` vs `schwab-connector` — when to run which
+Run it:
 
-- **`schwab-connector auth`** is the interactive OAuth bootstrap. It
-  opens your browser, you log into Schwab, and you paste the redirect
-  URL back into the terminal. It writes `schwab-token.json` (access +
-  refresh token) and exits. Run it:
-  - the **first time** you set up the repo;
-  - any time **`schwab-connector` prints `SchwabAuthError`** (the
-    refresh token is dead — happens after ~7 days of no use, or if
-    you revoke the app);
-  - after **rotating** `SCHWAB_APP_KEY` / `SCHWAB_APP_SECRET`, since
-    tokens are bound to the app registration.
-- **`schwab-connector`** (no subcommand) starts the MCP server. It reuses
-  the token file written by `auth` and refreshes the access token on
-  its own as needed. This is the one Claude actually talks to — leave
-  it running in a terminal while you use the provider. You do **not**
-  need to re-run `auth` each session; only when the refresh token
-  itself has expired.
+- the **first time** you set up the repo;
+- any time the server prints `SchwabAuthError` (the refresh token is
+  dead — happens after ~7 days of no use, or if you revoke the app);
+- after **rotating** `SCHWAB_APP_KEY` / `SCHWAB_APP_SECRET`, since
+  tokens are bound to the app registration.
 
 Tokens are persisted to `~/.schwab-connector/schwab-token.json`
-(overridable via `SCHWAB_TOKEN_FILE`). Access tokens auto-refresh;
-refresh tokens expire ~7 days and require re-running
-`schwab-connector auth`.
+(overridable via `SCHWAB_TOKEN_FILE`; the legacy directory name is
+retained so existing setups keep working). Access tokens auto-refresh
+while the server is running — you don't need to re-run `auth` each
+session, only when the refresh token itself has expired.
+
+### 4. Run the server
+
+Use the standard `traider` entry point described in the root
+[README](../../../README.md#quickstart). `schwab` needs to be included
+in `TRAIDER_PROVIDERS`, and must not coexist with `yahoo` (they expose
+the same tool names and the server rejects the pair at startup).

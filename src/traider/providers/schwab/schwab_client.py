@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("schwab_provider.schwab")
+logger = logging.getLogger("traider.schwab.client")
 
 SCHWAB_API_BASE = "https://api.schwabapi.com"
 SCHWAB_TOKEN_URL = f"{SCHWAB_API_BASE}/v1/oauth/token"
@@ -52,7 +52,7 @@ class SchwabClient:
 
     Tokens are loaded from ``token_file`` and auto-refreshed on expiry.
     If the refresh token is itself invalid (expired or revoked),
-    ``SchwabAuthError`` is raised — re-run ``schwab-connector auth``.
+    ``SchwabAuthError`` is raised — re-run ``traider auth schwab``.
     """
 
     def __init__(
@@ -67,7 +67,7 @@ class SchwabClient:
         self._app_secret = app_secret
         self._token_file = token_file
         self._base_url = base_url.rstrip("/")
-        self._http = http_client or httpx.Client(timeout=10.0)
+        self._http = http_client or httpx.Client(timeout=30.0)
         self._lock = threading.Lock()
         self._tokens: dict[str, Any] | None = None
 
@@ -519,7 +519,7 @@ class SchwabClient:
             if not self._token_file.exists():
                 raise SchwabAuthError(
                     f"No tokens at {self._token_file}. "
-                    "Run: schwab-connector auth"
+                    "Run: traider auth schwab"
                 )
             with self._token_file.open("r", encoding="utf-8") as f:
                 self._tokens = json.load(f)
@@ -555,7 +555,7 @@ class SchwabClient:
                 r.status_code, r.text[:500],
             )
             raise SchwabAuthError(
-                "Token refresh failed. Re-run: schwab-connector auth"
+                "Token refresh failed. Re-run: traider auth schwab"
             )
         body = r.json()
         tokens = {

@@ -34,7 +34,7 @@ from typing import Any
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-logger = logging.getLogger("fed_calendar_provider.fomc")
+logger = logging.getLogger("traider.fed_calendar.fomc")
 
 _URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
 

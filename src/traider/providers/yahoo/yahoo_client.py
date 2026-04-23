@@ -19,7 +19,7 @@ from typing import Any
 
 import yfinance as yf
 
-logger = logging.getLogger("yahoo_provider.yahoo")
+logger = logging.getLogger("traider.yahoo.client")
 
 
 # Same friendly aliases the Schwab provider accepts, mapped to the

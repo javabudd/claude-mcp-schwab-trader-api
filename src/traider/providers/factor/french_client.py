@@ -63,7 +63,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("factor_provider.french")
+logger = logging.getLogger("traider.factor.french")
 
 _BASE_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp"
 

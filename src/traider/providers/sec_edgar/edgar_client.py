@@ -34,7 +34,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("sec_edgar_provider.edgar")
+logger = logging.getLogger("traider.sec_edgar.edgar")
 
 _DATA_BASE = "https://data.sec.gov"
 _WWW_BASE = "https://www.sec.gov"

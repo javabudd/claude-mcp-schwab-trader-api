@@ -39,7 +39,7 @@ from typing import Any
 
 from lxml import etree
 
-logger = logging.getLogger("sec_edgar_provider.form13f")
+logger = logging.getLogger("traider.sec_edgar.form13f")
 
 
 class Form13FParseError(RuntimeError):

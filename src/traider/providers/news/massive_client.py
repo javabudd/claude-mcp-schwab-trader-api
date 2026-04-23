@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("news_provider.massive")
+logger = logging.getLogger("traider.news.massive")
 
 _BASE_URL = "https://api.massive.com"
 _NEWS_PATH = "/v2/reference/news"

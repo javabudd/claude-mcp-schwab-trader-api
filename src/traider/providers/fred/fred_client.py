@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("fred_provider.fred")
+logger = logging.getLogger("traider.fred.client")
 
 _BASE_URL = "https://api.stlouisfed.org/fred"
 
