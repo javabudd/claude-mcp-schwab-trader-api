@@ -310,6 +310,17 @@ without (a) Office installed and (b) a plan to use
 - **Options symbology.** Schwab expects the 21-character OSI format
   (e.g. `SPY   250321C00500000`), not dotted TOS notation. Equities
   and futures (`/ES`) work as-is.
+- **Index symbology on `/quotes` — `$PREFIX`, no `.X`, no `^`.**
+  Indices and CBOE yield products need a `$` prefix: `$VIX`, `$SPX`,
+  `$NDX`, `$DJI`, `$RUT`, `$COMPX`, `$XSP`, `$VVIX`, `$VXN`, `$TNX`
+  / `$TYX` / `$IRX` / `$FVX`. The `.X` suffix and `^` prefix (ToS /
+  Yahoo conventions) both return empty strings; so does the bare
+  root (`VIX`). Non-CBOE indices (ICE `$DXY`, index-option roots
+  like `$SPXW`) don't resolve. Miss mode is a silent empty
+  `result`, not an HTTP error — callers can't distinguish wrong
+  symbol, wrong convention, and closed market. The full rule (with
+  the 10× quirk for CBOE yield products) lives in the `get_quote`
+  docstring; keep that authoritative if you refactor.
 - **Option chains are nested maps, not lists.** `get_option_chain`
   returns Schwab's native `callExpDateMap` / `putExpDateMap` keyed by
   `"YYYY-MM-DD:dte"` → strike → **list** of contracts (Schwab allows

@@ -64,12 +64,33 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         """Return a single field for one symbol.
 
         Args:
-            symbol: Ticker (e.g. ``"SPY"``, ``"AAPL"``, ``"/ES"``).
+            symbol: Ticker. Equities/ETFs raw (``"SPY"``, ``"AAPL"``);
+                futures ``/``-prefixed (``"/ES"``); indices and CBOE
+                yield products ``$``-prefixed (``"$VIX"``, ``"$SPX"``).
+                See **Symbology** below — the wrong convention silently
+                returns an empty string, not an error.
             field: Either a friendly alias (``LAST``, ``BID``, ``ASK``,
                 ``VOLUME``, ``MARK``, ``OPEN``, ``HIGH``, ``LOW``, ``CLOSE``,
                 ``NET_CHANGE``, ``PERCENT_CHANGE``, ``BID_SIZE``,
                 ``ASK_SIZE``) or a native Schwab quote key (e.g.
                 ``lastPrice``, ``postMarketChange``, ``mark``).
+
+        **Symbology — index prefix.** Schwab's ``/quotes`` endpoint
+        wants indices and CBOE yield products with a ``$`` prefix
+        and **no** ``.X`` suffix: ``$VIX``, ``$SPX``, ``$NDX``,
+        ``$DJI``, ``$RUT``, ``$COMPX`` (Nasdaq Composite), ``$XSP``
+        (mini-SPX), ``$VVIX``, ``$VXN``, and CBOE yield products
+        ``$TNX`` / ``$TYX`` / ``$IRX`` / ``$FVX``. **CBOE yield
+        products are quoted at 10× the percent yield** — ``$TNX =
+        42.88`` means the 10Y is at 4.288%. The ToS / Yahoo /
+        ThinkScript variants — bare ``VIX``, ``^VIX``, ``$VIX.X`` —
+        all silently return ``""``, which is indistinguishable at
+        the tool layer from a wrong symbol or a closed market.
+        Equities reject the ``$`` prefix (``$AAPL`` → ``""``; use
+        ``AAPL``). Non-CBOE indices (ICE Dollar Index ``$DXY``,
+        index-options roots like ``$SPXW``) are not reachable via
+        this endpoint — surface the gap to the user rather than
+        faking a value from elsewhere.
 
         **Field semantics.** ``closePrice`` is the **prior** session's
         close, not today's 4PM. ``netChange`` / ``netPercentChange``
@@ -118,6 +139,18 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         Returns a nested mapping ``{symbol: {field: value}}``. If ``fields``
         is omitted, each symbol's entry is the full Schwab ``quote`` object.
+
+        **Symbology.** Same rule as ``get_quote``: equities raw
+        (``AAPL``), futures ``/``-prefixed (``/ES``), indices /
+        CBOE yield products ``$``-prefixed with no ``.X`` suffix
+        (``$VIX``, ``$SPX``, ``$NDX``, ``$DJI``, ``$RUT``,
+        ``$COMPX``, ``$XSP``, ``$VVIX``, ``$VXN``, ``$TNX`` /
+        ``$TYX`` / ``$IRX`` / ``$FVX`` — yield products are 10×
+        the percent). Wrong-convention symbols are dropped from
+        the result map silently rather than raising, so a missing
+        key is indistinguishable from a wrong symbol. See
+        ``get_quote`` for the full rule and gaps (non-CBOE indices
+        like ``$DXY`` are not reachable).
 
         **``fields`` is a strict whitelist — keys you don't list are
         dropped from the response.** A narrow list like
