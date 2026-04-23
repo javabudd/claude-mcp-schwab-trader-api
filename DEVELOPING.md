@@ -321,8 +321,16 @@ without (a) Office installed and (b) a plan to use
   of those are off, every Greek and theoretical value in the response
   is off too. Don't set them just to round-trip — leave them `None`
   unless the user is explicitly asking for a re-priced chain.
-- **Market hours.** Outside RTH, `lastPrice` may be stale; pre/post
-  session fields live under different keys in the quote JSON.
+- **Market hours.** Outside RTH, `lastPrice` / `closePrice` /
+  `netChange` / `netPercentChange` pin at the 4PM close and do not
+  update in post-market. AH drift lives under `postMarketChange` /
+  `postMarketPercentChange` (Δ from 4PM close), or `mark` /
+  `markChange` / `markPercentChange` (continuously-updated mid,
+  includes AH). `tradeTime` keeps ticking in post-market even when
+  `quoteTime` stays pinned. The `fields` whitelist on `get_quotes`
+  is strict — a narrow list silently drops the AH keys, so the
+  `get_quote` / `get_quotes` docstrings name them explicitly; if you
+  refactor those tools, preserve that guidance, it's load-bearing.
 - **Sandbox vs production.** If you set `SCHWAB_BASE_URL`, make sure
   it points where you intend.
 - **Price history parameter combos.** Schwab's `/pricehistory`

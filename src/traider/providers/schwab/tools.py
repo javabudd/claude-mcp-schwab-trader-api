@@ -69,7 +69,18 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 ``VOLUME``, ``MARK``, ``OPEN``, ``HIGH``, ``LOW``, ``CLOSE``,
                 ``NET_CHANGE``, ``PERCENT_CHANGE``, ``BID_SIZE``,
                 ``ASK_SIZE``) or a native Schwab quote key (e.g.
-                ``lastPrice``).
+                ``lastPrice``, ``postMarketChange``, ``mark``).
+
+        **Extended-hours prices live under different keys.** Outside
+        RTH the regular-session fields (``lastPrice``, ``closePrice``,
+        ``netChange``, ``netPercentChange``) pin at the 4PM close and
+        do NOT update in post-market. For AH drift, pass a native key:
+        ``postMarketChange`` / ``postMarketPercentChange`` (Δ from the
+        4PM close to the current post-market mark), or ``mark`` /
+        ``markChange`` / ``markPercentChange`` (continuously-updated
+        bid-ask midpoint; full-day move including AH). ``tradeTime``
+        is the epoch-ms of the last actual trade and keeps ticking in
+        post-market even when ``quoteTime`` stays pinned at 4PM.
         """
         logger.info("get_quote symbol=%s field=%s", symbol, field)
         try:
@@ -89,6 +100,18 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         Returns a nested mapping ``{symbol: {field: value}}``. If ``fields``
         is omitted, each symbol's entry is the full Schwab ``quote`` object.
+
+        **``fields`` is a strict whitelist — keys you don't list are
+        dropped from the response.** A narrow list like
+        ``["lastPrice", "netChange"]`` will silently omit extended-hours
+        data, and the caller will read the 4PM RTH close thinking it's
+        the current price. To inspect post-market movement, either omit
+        ``fields`` (get the full quote object) or include the AH keys
+        explicitly: ``postMarketChange``, ``postMarketPercentChange``,
+        ``mark``, ``markChange``, ``markPercentChange``, ``tradeTime``.
+        Regular-session fields (``lastPrice``, ``closePrice``,
+        ``netChange``, ``netPercentChange``) pin at the 4PM close and
+        do NOT reflect AH drift on their own.
         """
         logger.info("get_quotes symbols=%s fields=%s", symbols, fields)
         try:
