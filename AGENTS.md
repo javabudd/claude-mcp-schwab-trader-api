@@ -24,6 +24,15 @@ new operation, bugfix, refactor, config change). A trading question
 — even one that surfaces a gap in what traider exposes — is not a
 cue to load it.)
 
+(Trade-preparation methodology — position sizing, stop placement,
+risk/reward, tax-aware timing — lives in `RISK.md` and is similarly
+not auto-loaded. **Load `RISK.md` when the user moves from scoping
+a trade (*"is SPY a buy?"*) to preparing a specific one (*"how
+should I size this?"*, *"where does the stop go?"*, *"what's my
+R/R?"*).** Scoping questions don't need it; once the user is
+working out levels and size, the guidance there is the anchor for
+your answer.)
+
 ## What this repo is
 
 `traider` is two things that only work together:
@@ -77,13 +86,35 @@ common asks.
 
 If you don't know the user's risk tolerance, time horizon, existing
 exposure, or whether the account is tax-advantaged, *ask before
-recommending*. These are framing inputs the tools can't supply.
+recommending*. These are framing inputs the tools can't supply. For
+taxable accounts, holding period and recent trade history *are*
+things the tools can supply — pull them before recommending a sell
+or a rebuy, and surface wash-sale windows and STCG/LTCG boundaries
+rather than expecting the user to remember them.
 
 The user is here because they want you to spot gaps in the framing
 and fill them. A literal one-shot answer that ignores obvious missing
 context is a failure mode. This is about **analysis depth** — it does
 not relax the read-only rule or take the user out of the loop on any
 decision.
+
+### When to stay narrow
+
+The decomposition rule prevents shallow one-shot answers; it is not
+a license to ignore the question the user actually asked. Stay
+narrow when:
+
+- The user is iterating on a frame you already established this
+  session (*"now pull TLT,"* *"same thing for IWM"*). They have the
+  context; they want the data point.
+- The ask is unambiguously factual (*"when does the market close
+  today?"*, *"what's the current 10Y?"*, *"what's NVDA's next
+  earnings date?"*). Fan-out buries the answer.
+- The user has already done their own decomposition out loud and is
+  asking for one specific piece of it.
+
+Over-fanning is its own failure mode — it signals you weren't
+listening and makes the analyst feel adversarial. Read the turn.
 
 ## Common question shapes and how to decompose them
 
@@ -103,7 +134,7 @@ depends on what's loaded in this session.
 
 | Question shape | Dimensions to analyze |
 |---|---|
-| *"Should I buy / sell / hold X?"* | current price and recent action; technical signals (trend, support/resistance, momentum, volatility regime); fundamentals and valuation; recent filings and insider activity; factor and sector/industry exposure; news flow and sentiment; upcoming catalysts (earnings, macro releases, FOMC); existing position and correlation to the user's book |
+| *"Should I buy / sell / hold X?"* | current price and recent action; technical signals (trend, support/resistance, momentum, volatility regime); fundamentals and valuation; recent filings and insider activity; factor and sector/industry exposure; news flow and sentiment; upcoming catalysts (earnings, macro releases, FOMC); existing position and correlation to the user's book; **for a sell in a taxable account**, holding period (STCG vs LTCG boundary) and recent trade history (wash-sale exposure on recent losses or pending rebuys) |
 | *"How is my portfolio doing?"* | holdings and current values; per-position returns and volatility; concentration and correlation structure; drawdown and benchmark comparison; factor exposure of the book; upcoming catalysts across holdings |
 | *"What's the macro setup right now?"* | upcoming high-impact data releases; next FOMC meeting and recent Fed commentary; yield curve level and shape; recent Treasury auction demand and TGA cash; equity / bond / FX / commodity regime |
 | *"Explain this move in X."* | price and volume around the move; filings in the window; headlines and sentiment in the window; sector and factor returns same window; macro releases that day; peer and correlated-asset moves |
