@@ -484,6 +484,21 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         The same trap applies to equities, ETFs, and options alike.
 
+        **After-hours options: ``currentDayProfitLoss`` will NOT match
+        the underlying's ``netChange``.** Once RTH closes, a stock's
+        ``closePrice`` and ``netChange`` are pinned at the 4PM close,
+        but an option position's ``currentDayProfitLoss`` keeps
+        re-marking against the current mid-quote as the underlying
+        drifts in AH. Since options don't actually trade after 4PM for
+        most single-names, that AH mark is a bid-ask midpoint on a
+        spread that has widened materially — it can diverge from what
+        delta would predict on the spot move. The resulting apparent
+        conflict (e.g. stock closed +8% on the day, but an ITM long
+        call's ``currentDayProfitLoss`` is negative) is expected, not
+        a data bug. Don't flag it, and don't pull a chain to
+        "reconcile" an AH mark against an RTH close — real P&L prints
+        at the next open.
+
         Args:
             include_positions: Include each account's ``positions`` array
                 (quantity, cost basis, market value, unrealized P&L).
