@@ -298,6 +298,15 @@ without (a) Office installed and (b) a plan to use
   refresh tokens in ~7 days. After a lapse, the user has to re-run
   `traider auth schwab`. Don't silently swallow "invalid refresh
   token" — surface it.
+- **`currentDayProfitLoss` is not day P&L on same-day opens.** The
+  field in `get_accounts` positions equals `marketValue` for any
+  position opened today (detectable via
+  `previousSessionLongQuantity` / `previousSessionShortQuantity` of
+  `0`, or non-zero `currentDayCost`). For same-day opens the
+  correct open P&L is in `longOpenProfitLoss` / `shortOpenProfitLoss`.
+  The `get_accounts` tool docstring carries the full warning — it
+  is load-bearing guidance for any consuming LLM, not just a dev
+  note. If you refactor the tool, preserve it.
 - **Options symbology.** Schwab expects the 21-character OSI format
   (e.g. `SPY   250321C00500000`), not dotted TOS notation. Equities
   and futures (`/ES`) work as-is.

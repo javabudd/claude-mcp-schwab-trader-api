@@ -190,6 +190,16 @@ with citations, because the user can't tell what to sanity-check.
   any chain pulled outside RTH. Before citing option P&L as a
   reason to act, verify the chain — see `OPTIONS.md` for the full
   checklist.
+- **Verify account P&L fields on same-day opens.** Brokerage
+  account APIs commonly report a "day P&L" field whose value on a
+  position opened *today* is the position's current market value,
+  not the day's P&L. Mis-citing market value as a P&L swing
+  inflates wins and losses by one to two orders of magnitude and
+  is a trust-breaking error. Rule: before quoting a day gain/loss
+  on any position, confirm it carried over from the prior session;
+  if it didn't, cite the open-P&L field instead. The concrete field
+  names for each brokerage provider live in its account tool's
+  docstring — read it before leaning on any intraday P&L number.
 - **Historical ≠ predictive.** When you cite a beta, correlation,
   volatility, or regression, state the window and that it describes
   the past. Don't project it forward without saying so.

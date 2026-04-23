@@ -457,6 +457,33 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
     def get_accounts(include_positions: bool = False) -> list[dict[str, Any]]:
         """Authorized accounts (read-only).
 
+        Returns raw Schwab ``securitiesAccount`` records — balances,
+        buying power, and (optionally) positions with cost basis,
+        market value, and open P&L.
+
+        **Reading P&L fields correctly — this is a trap.** On a
+        position opened *today*, Schwab reports ``currentDayProfitLoss``
+        as the position's current ``marketValue``, NOT the intraday P&L.
+        Quoting that field as "today's gain/loss" on a same-day open
+        inflates the number by one to two orders of magnitude and is a
+        trust-breaking error (a short call sold for $820 credit and now
+        marked at $890 shows ``currentDayProfitLoss: -890`` — the real
+        open P&L is -$70).
+
+        Rules for any position field you cite:
+
+        - **Did the position carry over from the prior session?** Check
+          ``previousSessionLongQuantity`` / ``previousSessionShortQuantity``
+          (both 0 → opened today) and ``currentDayCost`` (non-zero → traded
+          today).
+        - **For same-day opens, use the open-P&L field instead.**
+          ``longOpenProfitLoss`` for longs, ``shortOpenProfitLoss`` for
+          shorts. Both are relative to the trade's fill price.
+        - **For carryover positions**, ``currentDayProfitLoss`` is the
+          real intraday P&L and can be cited directly.
+
+        The same trap applies to equities, ETFs, and options alike.
+
         Args:
             include_positions: Include each account's ``positions`` array
                 (quantity, cost basis, market value, unrealized P&L).
