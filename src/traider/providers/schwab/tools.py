@@ -71,16 +71,26 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 ``ASK_SIZE``) or a native Schwab quote key (e.g.
                 ``lastPrice``, ``postMarketChange``, ``mark``).
 
-        **Extended-hours prices live under different keys.** Outside
-        RTH the regular-session fields (``lastPrice``, ``closePrice``,
-        ``netChange``, ``netPercentChange``) pin at the 4PM close and
-        do NOT update in post-market. For AH drift, pass a native key:
-        ``postMarketChange`` / ``postMarketPercentChange`` (Δ from the
-        4PM close to the current post-market mark), or ``mark`` /
-        ``markChange`` / ``markPercentChange`` (continuously-updated
-        bid-ask midpoint; full-day move including AH). ``tradeTime``
-        is the epoch-ms of the last actual trade and keeps ticking in
-        post-market even when ``quoteTime`` stays pinned at 4PM.
+        **Field semantics.** ``closePrice`` is the **prior** session's
+        close, not today's 4PM. ``netChange`` / ``netPercentChange``
+        are anchored on the regular session (Δ from prior close to
+        ``lastPrice``). ``postMarketChange`` /
+        ``postMarketPercentChange`` are anchored on today's RTH close
+        (Δ from today's 4PM to the current mark). ``mark`` is the
+        bid-ask midpoint. ``lastPrice`` *can* include AH TRF prints
+        (``lastMICId`` = ``XADF``) but isn't guaranteed to.
+
+        **Update cadence is NOT guaranteed post-4PM.** Schwab does
+        not document that any REST quote field updates continuously
+        in extended hours, and empirically the
+        ``/marketdata/v1/quotes`` snapshot often pins near the 4PM
+        close across ALL fields — including ``mark``,
+        ``postMarketChange``, ``tradeTime``, ``quoteTime`` — until
+        the next session. Live AH ticks are served by the Schwab
+        **Streamer** (``LEVELONE_EQUITIES`` websocket), not REST.
+        Treat REST quotes as best-effort in extended hours; if a
+        call returns stale AH values, don't retry in a loop — the
+        REST path may simply not advance until the open.
         """
         logger.info("get_quote symbol=%s field=%s", symbol, field)
         try:
@@ -103,15 +113,21 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         **``fields`` is a strict whitelist — keys you don't list are
         dropped from the response.** A narrow list like
-        ``["lastPrice", "netChange"]`` will silently omit extended-hours
-        data, and the caller will read the 4PM RTH close thinking it's
-        the current price. To inspect post-market movement, either omit
-        ``fields`` (get the full quote object) or include the AH keys
+        ``["lastPrice", "netChange"]`` will silently omit the AH-
+        anchored keys (``postMarketChange``, ``mark``, etc.). To
+        inspect post-market movement, either omit ``fields`` (get
+        the full quote object) or include the AH-anchored keys
         explicitly: ``postMarketChange``, ``postMarketPercentChange``,
-        ``mark``, ``markChange``, ``markPercentChange``, ``tradeTime``.
-        Regular-session fields (``lastPrice``, ``closePrice``,
-        ``netChange``, ``netPercentChange``) pin at the 4PM close and
-        do NOT reflect AH drift on their own.
+        ``mark``, ``markChange``, ``markPercentChange``, ``tradeTime``,
+        ``quoteTime``.
+
+        **REST quotes are best-effort in extended hours.** See
+        ``get_quote`` for field semantics and the update-cadence
+        caveat: the AH-anchored keys exist in the REST response, but
+        Schwab does not guarantee they update post-4PM, and
+        empirically they often pin at the close across ALL fields
+        until the next session. Live AH ticks live on the Schwab
+        Streamer (``LEVELONE_EQUITIES`` websocket), not REST.
         """
         logger.info("get_quotes symbols=%s fields=%s", symbols, fields)
         try:

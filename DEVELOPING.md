@@ -321,16 +321,24 @@ without (a) Office installed and (b) a plan to use
   of those are off, every Greek and theoretical value in the response
   is off too. Don't set them just to round-trip — leave them `None`
   unless the user is explicitly asking for a re-priced chain.
-- **Market hours.** Outside RTH, `lastPrice` / `closePrice` /
-  `netChange` / `netPercentChange` pin at the 4PM close and do not
-  update in post-market. AH drift lives under `postMarketChange` /
-  `postMarketPercentChange` (Δ from 4PM close), or `mark` /
-  `markChange` / `markPercentChange` (continuously-updated mid,
-  includes AH). `tradeTime` keeps ticking in post-market even when
-  `quoteTime` stays pinned. The `fields` whitelist on `get_quotes`
-  is strict — a narrow list silently drops the AH keys, so the
-  `get_quote` / `get_quotes` docstrings name them explicitly; if you
-  refactor those tools, preserve that guidance, it's load-bearing.
+- **Market hours.** REST quote fields split into two anchor points
+  by semantic: regular-session-anchored (`closePrice` = **prior**
+  day's close; `netChange` / `netPercentChange` = Δ from prior
+  close to `lastPrice`) vs. today's-close-anchored
+  (`postMarketChange` / `postMarketPercentChange` = Δ from today's
+  4PM to current mark). `mark` is the bid-ask mid; `lastPrice`
+  *can* include AH TRF prints (`lastMICId` = `XADF`) but isn't
+  guaranteed to. **Schwab does NOT guarantee that any REST quote
+  field updates continuously post-4PM**, and empirically the
+  `/marketdata/v1/quotes` snapshot often pins near the close
+  across all fields — including `mark`, `postMarketChange`,
+  `tradeTime`, `quoteTime` — until the next session. Live AH data
+  is a **Streamer** (`LEVELONE_EQUITIES` websocket) product, not
+  REST; if reliable live AH matters for a use case, the provider
+  needs a streamer-backed path. The `fields` whitelist on
+  `get_quotes` is strict — a narrow list silently drops the AH-
+  anchored keys, so the `get_quote` / `get_quotes` docstrings name
+  them explicitly; preserve that when refactoring.
 - **Sandbox vs production.** If you set `SCHWAB_BASE_URL`, make sure
   it points where you intend.
 - **Price history parameter combos.** Schwab's `/pricehistory`
