@@ -41,6 +41,7 @@ PROVIDERS: dict[str, str] = {
     "earnings":     "traider.providers.earnings.tools",
     "estimates":    "traider.providers.estimates.tools",
     "eia":          "traider.providers.eia.tools",
+    "cftc":         "traider.providers.cftc.tools",
 }
 
 # Backends that expose the same market-data surface; pick one.

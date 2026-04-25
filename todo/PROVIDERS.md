@@ -151,9 +151,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   free daily holdings as CSV/JSON), ETF.com and ETFdb (scraping,
   ToS-restricted). No single clean source; expect per-issuer
   adapters.
-- [ ] **cftc** — Commitments of Traders (futures positioning by
-  trader class). Weekly release. Primary source:
-  `publicreporting.cftc.gov` (Socrata API, no auth required). Free.
+- [x] **cftc** — shipped. Commitments of Traders weekly futures
+  positioning. Three curated reports — Disaggregated (commodities:
+  PMPU / swap dealers / managed money / other reportables), Traders
+  in Financial Futures (financials: dealer / asset mgr / leveraged
+  funds), Legacy (Commercial vs. Non-Commercial) — each in
+  futures-only and combined flavors, plus a generic
+  ``get_cftc_dataset`` SoQL passthrough for Bank Participation,
+  Supplemental CIT, and other CFTC datasets. Primary source:
+  `publicreporting.cftc.gov` (Socrata). No credentials; optional
+  ``CFTC_APP_TOKEN`` raises the per-IP rate limit. See
+  [src/traider/providers/cftc/README.md](../src/traider/providers/cftc/README.md).
+  Deferred: Bank Participation curated tool, Supplemental CIT
+  curated tool — both reachable today via ``get_cftc_dataset`` and
+  not high-traffic enough to warrant their own surface yet.
 - [ ] **corporate-actions** — Historical splits, dividend payments
   (regular + special), spin-offs, symbol / name changes, M&A
   timelines. Required to (a) corporate-action-adjust historical

@@ -47,7 +47,8 @@ traider/
 │       ├── news/             # Massive news API
 │       ├── earnings/         # Finnhub earnings calendar + surprises
 │       ├── estimates/        # Finnhub analyst recommendation trends
-│       └── eia/              # EIA energy data (petroleum, natgas, electricity)
+│       ├── eia/              # EIA energy data (petroleum, natgas, electricity)
+│       └── cftc/             # CFTC Commitments of Traders (weekly positioning)
 └── logs/                     # per-provider runtime logs
 ```
 
@@ -78,6 +79,7 @@ TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 | `earnings`     | Finnhub earnings calendar + surprises | `FINNHUB_API_KEY` (free tier) |
 | `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
 | `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
+| `cftc`         | CFTC Commitments of Traders (weekly positioning) | None (optional `CFTC_APP_TOKEN`) |
 
 Rules:
 

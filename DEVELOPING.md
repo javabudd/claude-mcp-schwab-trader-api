@@ -27,6 +27,7 @@ touching the code.
   - [earnings](#earnings)
   - [estimates](#estimates)
   - [eia](#eia)
+  - [cftc](#cftc)
 
 ---
 
@@ -110,6 +111,10 @@ src/traider/
       __init__.py
       tools.py
       eia_client.py        # httpx wrapper around api.eia.gov/v2
+    cftc/
+      __init__.py
+      tools.py
+      cftc_client.py       # httpx wrapper around publicreporting.cftc.gov (Socrata)
 ```
 
 Each provider is **self-contained under its directory** — imports
@@ -1135,3 +1140,107 @@ naturally.
   ``get_eia_series`` tool already takes a ``route`` parameter and
   enforces the bracketed-param serialization; a second passthrough
   with no validation just invites invalid requests.
+
+### cftc
+
+**What it is.** Read-only bridge to the
+[CFTC Public Reporting portal](https://publicreporting.cftc.gov/),
+which exposes the Commitments of Traders (COT) datasets on the
+Socrata Open Data platform. Three curated reports plus a generic
+SoQL escape hatch:
+
+- **Disaggregated** (commodities) — ``72hh-3qpy`` futures-only,
+  ``kh3c-gbw2`` combined.
+- **Traders in Financial Futures** — ``gpe5-46if`` futures-only,
+  ``yw9f-hn96`` combined.
+- **Legacy** (commercial / non-commercial) — ``6dca-aqww``
+  futures-only, ``jun7-fc8e`` combined.
+
+**Secrets.** None. The Socrata endpoint is open. An optional
+``CFTC_APP_TOKEN`` raises the per-IP rate limit when set; the client
+sends it as the ``X-App-Token`` header. Don't log it.
+
+**Release cadence is structural.** COT is published **weekly,
+Friday 3:30 PM ET, for positions held the prior Tuesday close** —
+a ~3-day reporting lag baked into how the report is collected. On
+holiday weeks the release slides to Monday. Surface this lag in any
+"current positioning" answer; recommendations that imply real-time
+COT data are wrong by construction.
+
+**SoQL query dialect.** Every CFTC dataset on Socrata accepts the
+same parameters:
+
+- ``$select`` — comma-separated projection.
+- ``$where`` — SoQL filter. Strings single-quoted, internal single
+  quotes doubled to escape. ISO dates compared as floating
+  timestamps: ``report_date_as_yyyy_mm_dd >= '2025-01-01'``.
+  Substring match: ``upper(market_and_exchange_names) like
+  upper('%CRUDE%')``.
+- ``$order`` — column with optional ``DESC``.
+- ``$limit`` — page size, max 50 000.
+- ``$offset`` — 0-indexed paging offset.
+- ``$q`` — full-text search across all columns.
+
+The curated tools build ``$where`` from a small set of common
+filters (market substring, contract market code, commodity
+subgroup, date range). For anything outside that set, callers reach
+for ``get_cftc_dataset`` with raw SoQL.
+
+**Things that will bite you.**
+
+- **Field-name typos are intentional, preserved verbatim.** CFTC
+  has shipped column names with typos that are now load-bearing
+  (anyone joining historical data on column position would break).
+  Examples: ``swap__positions_spread_all`` (double underscore) in
+  the disaggregated report, ``noncomm_postions_spread_all`` (no
+  second 'i' in "positions") in the legacy report. The client and
+  tools do **not** rename these — pass through verbatim. Quote
+  field names from a sample row, don't transcribe from
+  documentation.
+- **Combined vs futures-only is a real choice.** "COT" in financial
+  media usually means combined (futures-and-options), but
+  futures-only is sometimes preferred for purity (options can be
+  hedges that distort the signal). Keep ``combined=True`` as the
+  default but expose the toggle and document the difference.
+- **`market_and_exchange_names` is the right needle.** The
+  ``contract_market_name`` column omits the exchange suffix
+  ("WHEAT-SRW" vs "WHEAT-SRW - CHICAGO BOARD OF TRADE") and is
+  ambiguous when the same commodity trades on multiple exchanges
+  (e.g. gold on COMEX vs NYMEX mini, wheat on CBOT vs KCBT vs
+  MGEX). Always filter on the full market-and-exchange string.
+- **Old / Other contract decomposition only on commodities.** The
+  disaggregated and legacy reports split positions across
+  ``_all`` / ``_old`` / ``_other`` columns to track front-month vs
+  back-month exposure. The TFF report does **not** carry that
+  split — financial-futures positioning is reported only as ``_all``.
+  Don't emit confused "no `_old` column?" errors when working with
+  TFF.
+- **Bank Participation isn't on this Socrata catalog under a
+  Commitments-of-Traders 4-by-4.** It's a separate report category
+  on the portal; if the user asks for BPR, look up the current
+  dataset ID on https://publicreporting.cftc.gov/ before passing it
+  to ``get_cftc_dataset``.
+- **Socrata returns ``200 []``, not 404, for empty filters.** A
+  ``where`` clause that matches no rows comes back as an empty
+  list. Surface "no rows" to the user — don't loop over variations
+  of the filter trying to coerce a hit.
+- **Rate limits.** Without an app token, Socrata documents the
+  endpoint as "throttled" without publishing exact numbers; with a
+  token, the documented limit is generous (1000 req/min). 429s
+  propagate as ``CftcError``; don't retry.
+
+**What not to do.**
+
+- Don't add an OAuth flow — Socrata uses a static app token, and
+  it's optional.
+- Don't retry 429s. Surface them so the user can decide whether to
+  back off or get an app token.
+- Don't cache responses silently. The weekly cadence makes a
+  stale-by-a-week cache hit feed obviously wrong positioning into a
+  recommendation.
+- Don't reshape the Socrata JSON. The model reads the verbatim
+  field names directly — including the historic typos.
+- Don't try to "merge" combined + futures-only flavors into one
+  unified row. They're separate snapshots and the user needs to
+  know which they're seeing; the ``flavor`` field on the response
+  envelope is load-bearing.
