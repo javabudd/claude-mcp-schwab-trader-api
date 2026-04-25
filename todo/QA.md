@@ -1,0 +1,229 @@
+# todo/QA.md — outstanding QA findings for the traider hub
+
+Static-only QA pass on the repo (no runtime). Findings carry file:line
+refs and severity. Every entry inherits the hub-wide rules in
+[AGENTS.md](../AGENTS.md): read-only, primary sources preferred,
+secrets out of repo/logs, surface 429s, no silent fallbacks, no
+fabricated numbers.
+
+Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
+
+## Triage order
+
+1. #5 (13F unit boundary) — only finding that materially corrupts numbers.
+2. #2, #3, #4, #6 — silent fallbacks; AGENTS.md treats these as the
+   trust-breaking class of bug.
+3. #1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`
+   (probably one PR each).
+4. Security tightening: #7, #8.
+5. Land `tests/` + CI; start with parser fixtures (Form 4 XML, 13F
+   XML, FOMC HTML snapshot, Ken French CSV block) since those are
+   most prone to silent breakage.
+
+## CRITICAL
+
+- [ ] **#1 — `source` / `fetched_at` envelope is inconsistently
+  applied.** DEVELOPING.md:255-257 makes it a hub convention;
+  `factor`, `sec_edgar`, `earnings`, `estimates` honor it; most of
+  `schwab`, `yahoo`, `news`, and `fred` don't. A `get_quote` or
+  `get_news` response can't be cited per the AGENTS.md "cite tool +
+  timestamp for every number" rule.
+  - `schwab/tools.py`: `get_quote` (~68), `get_quotes` (~139),
+    `get_price_history` (~189), `get_option_chain` (~344),
+    `get_option_expirations` (~475), `get_movers` (~492),
+    `search_instruments` (~517), and all account / transaction /
+    order tools — none stamp source/fetched_at.
+  - `yahoo/tools.py`: same set (lines ~69, 91, 109, 213, 335, 353,
+    376).
+  - `news/tools.py:83` — returns Massive's raw envelope only.
+  - `fred/tools.py` — none of the @mcp.tool functions stamp it.
+
+- [ ] **#2 — Yahoo silent-fallback on `.info` fetch failure.**
+  `yahoo/yahoo_client.py:488-490`. Exception during `_quote_payload`
+  is caught and the dict left empty, so `get_quote` returns `null`
+  fields instead of raising. Direct violation of AGENTS.md "no
+  silent fallbacks that change the numbers" / "no fabricated
+  numbers."
+
+- [ ] **#3 — Yahoo silent-drop of failed option expirations.**
+  `yahoo/yahoo_client.py:336-338`. When `ticker.option_chain(d)`
+  raises mid-loop, the bad expiration is logged-and-`continue`'d.
+  Caller gets a partial chain with no `dataQualityWarning` field
+  flagging the dropped slices.
+
+- [ ] **#4 — SEC Form 4 silent-skip on parse failure.**
+  `sec_edgar/tools.py:395-409`. `parse()` failures are logged and
+  the filing is dropped from the response. The summary count
+  silently shrinks; caller can't tell whether a CEO had no recent
+  trades or whether 3/20 Form 4s failed to parse.
+
+- [ ] **#5 — 13F value-unit boundary is off-by-month.**
+  `sec_edgar/form13f_parser.py:119`. The check is
+  `(year, month) >= (2022, 9)` for the "≥ 2022-09-30" cutoff. A
+  filing with `period_of_report=2022-09-15` (still thousands per
+  SEC) is mis-tagged as `dollars`, blowing up summed positions by
+  1000×. Only finding that materially distorts numbers.
+
+- [ ] **#6 — fed-calendar swallows layout drift.**
+  `fed_calendar/fomc_scraper.py:137-152`. If federalreserve.gov
+  reshapes the panels, the scraper logs a warning and returns
+  `{"count": 0, "meetings": []}`. DEVELOPING.md is explicit: "Don't
+  paper over with fuzzy fallbacks." Empty result needs to be a
+  raise, not a warn.
+
+## HIGH
+
+- [ ] **#7 — OAuth token file has a permission TOCTOU window on
+  first write.** `schwab/auth.py:95-101` writes the file at default
+  umask, then chmods to 0600. Tokens are world-readable for the
+  milliseconds in between. `schwab_client.py:528-538` does this
+  correctly via `tmp + os.replace + chmod`; `auth.py` does not. Use
+  the same pattern.
+
+- [ ] **#8 — MCP server defaults: `0.0.0.0` + DNS-rebinding
+  protection disabled.** `server.py:55,115-116`. The combination
+  exposes the unauthenticated tool surface to any host on the
+  LAN/Wi-Fi and disables Host-header validation that mitigates
+  DNS-rebinding from a malicious page in the user's browser. README
+  does not warn about this. Either default `--host 127.0.0.1` (and
+  document `0.0.0.0` for Docker), or re-enable rebinding protection,
+  or both.
+
+- [ ] **#9 — Schwab `get_price_history` builds an invalid request
+  when only one of `start_date` / `end_date` is set.**
+  `schwab/schwab_client.py:156-162`. The `else: params["period"] =
+  period` is in the else branch of `if start_date or end_date`, so
+  passing just `start_date=...` sends `startDate` with no `endDate`
+  and no `period`. Schwab rejects that combination with a terse 400.
+  Either require both dates together or fall back to `period`.
+
+- [ ] **#10 — CIK is passed `int(cik)` (zero-padding stripped) when
+  building Archive URLs.** `sec_edgar/edgar_client.py:275,286`;
+  `tools.py:78,263`. Inconsistent with the 10-digit normalization
+  the rest of the client enforces. Works today because EDGAR's
+  archive routing tolerates it; will break the day SEC tightens.
+
+- [ ] **#11 — Finnhub clients don't distinguish 403 from generic
+  4xx.** `earnings/finnhub_client.py:72-76`,
+  `estimates/finnhub_client.py:67-71`. Premium endpoints return
+  403; a future maintainer wiring one would see a generic
+  `FinnhubError` instead of a clear "premium plan required"
+  surface. Estimates' README/docstring is very firm about this —
+  code should match.
+
+- [ ] **#12 — Zero tests, zero CI.** No `tests/`, no
+  `.github/workflows/`, no lint or typecheck config. For a tool
+  whose purpose is "the model trusts these numbers," the parsers
+  (`form4_parser`, `form13f_parser`, `fomc_scraper`,
+  `french_client` CSV blocks) are the highest-value place to land
+  regression tests, and currently none exist.
+
+## MEDIUM
+
+- [ ] **#13 — `schwab/options_summary.py` and
+  `yahoo/options_summary.py` are byte-for-byte identical** (`cmp`
+  confirmed). DEVELOPING.md:113-115 calls out
+  `ta.py` / `analytics.py` duplication as intentional, but
+  `options_summary.py` is a third duplicated file the doc doesn't
+  mention, and unlike the others it isn't even tweaked at the
+  docstring level. Either cite it explicitly in the duplication
+  note or extract to `traider.providers._shared.options_summary`
+  (no cross-provider import — both still import from `_shared`).
+
+- [ ] **#14 — DEVELOPING.md package-layout block (~lines 51-108) is
+  missing files** that exist on disk: `schwab/options_summary.py`,
+  `yahoo/options_summary.py`, `fred/analytics.py`. Stale.
+
+- [ ] **#15 — Form 4 `_bool` / `_float` silent coercion.**
+  `sec_edgar/form4_parser.py:173-186`. Malformed booleans become
+  `False`; malformed floats become `None`. Per AGENTS.md "no
+  fabricated numbers," coercion failure should raise (or at minimum
+  surface a per-row parse-warning array on the envelope).
+
+- [ ] **#16 — `_pick_information_table` swallows 404 from
+  `filing_index`.** `sec_edgar/tools.py:132-133`. The caller
+  (`get_institutional_portfolio`) then reports a parser error
+  instead of the real 404 / network failure.
+
+- [ ] **#17 — fred analytics output mixes derived classifications
+  with raw fields.** `fred/tools.py:161-297` and `analytics.py`.
+  AGENTS.md "distinguish tool output from your inference" applies on
+  the model side, but provider responses also blend derived
+  `regime`, `curve_shape`, `alignment` with upstream-shaped keys.
+  Either nest under `derived: {...}` or stamp the keys.
+
+- [ ] **#18 — `auth.py` HTTP timeout 10s vs `schwab_client.py`
+  30s.** `schwab/auth.py:70`. Slow-network users hit a confusing
+  timeout on the most fragile path (one-shot OAuth). Align to 30.
+
+- [ ] **#19 — Treasury monetary fields are strings — not enforced
+  anywhere.** DEVELOPING.md is explicit, `treasury_client.py`
+  doesn't cast, but the tool-layer doesn't assert it either. If a
+  future refactor adds `float(...)` to "tidy up" the response, the
+  precision-preservation guarantee is silently lost. A guard or a
+  comment at the boundary would help.
+
+- [ ] **#20 — `server.py` startup order.** `_validate_providers`
+  (line 131) runs *after* `_configure_root_logging` (120) and after
+  the empty-providers warn (126-129). A user with
+  `TRAIDER_PROVIDERS=foo,bar` still gets log files created and the
+  warning printed before the SystemExit fires. Move validation
+  right after `load_settings()`.
+
+- [ ] **#21 — `pyproject.toml` declares
+  `requires-python = ">=3.11"` but DEVELOPING.md and the Dockerfile
+  pin Python 3.13.** With no CI matrix, 3.11 / 3.12 are untested
+  floors. Either tighten to `>=3.13` or add a test job.
+
+## LOW
+
+- [ ] **#22 — Stale logs in `logs/`.** `*-connector.log` files
+  (root-owned, dated April 19) are from a previous logger-name
+  scheme; commit f5ba823 ("Fix logger names") changed the
+  convention. Files are gitignored but still on disk. Cleanup
+  commit + a `.gitkeep` so the dir survives a `rm logs/*` would be
+  tidier.
+
+- [ ] **#23 — fed-calendar two-month meeting else-branch is
+  identical to the if-branch.** `fed_calendar/fomc_scraper.py:188-197`.
+  Works correctly; just confusing — the `else` was probably meant
+  to anchor `start_dt` and `end_dt` both to `start_month` for
+  single-month meetings. Either collapse the two branches or fix
+  the `else` to match the comment.
+
+- [ ] **#24 — fed-calendar `fetched_at` reflects response time, not
+  scrape time.** `fed_calendar/tools.py:83,113`. Differs from
+  `factor/tools.py` (which stamps the upstream fetch). Minor
+  consistency bug.
+
+- [ ] **#25 — ticker_map TTL uses `time.monotonic()` but
+  `_fetched_at_iso` uses `datetime.now(...)`.**
+  `sec_edgar/ticker_map.py`. Backward clock jump can put
+  `fetched_at` *before* the previous fetch. Cosmetic.
+
+- [ ] **#26 — Treasury logger name inconsistency.**
+  `treasury_client.py:27` uses `"traider.treasury.fiscal"` while
+  every other provider's client uses `"traider.<name>.client"` or
+  just `"traider.<name>"`.
+
+- [ ] **#27 — `__main__._run_auth` parses `sys.argv[2:]`
+  positionally** — extra args are silently ignored
+  (`traider auth schwab --foo` runs without complaint). Not a real
+  risk; consider `argparse` for the auth subcommand for parity with
+  the server one.
+
+## Verified clean
+
+- `.env` not tracked (gitignore + `git ls-files` checked); no
+  secrets in repo.
+- `compileall` on `src/` — no syntax errors.
+- TokenBucket in `edgar_client.py` is correct (lock around refill,
+  sleep when starved, no double-spend).
+- `attach_provider_logger` is idempotent — safe to call repeatedly.
+- Read-only invariant: no `POST` / `DELETE` / `PUT` to brokerage
+  anywhere; auth flow only writes the local token file.
+- API-key handling: keys live in env or headers, never echoed in
+  responses or `logger.info(...)` calls reviewed.
+- 429 propagation: every client raises rather than retry-looping.
+- Schwab / Yahoo `attach_provider_logger` names match
+  `settings.log_file("schwab")` / `"yahoo"`.
