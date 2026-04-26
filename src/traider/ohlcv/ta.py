@@ -4,6 +4,9 @@ Thin wrapper around :mod:`talib.abstract` so the MCP tool surface
 doesn't have to know about each indicator individually. Callers pass a
 list of ``{"name": "SMA", "timeperiod": 20, ...}`` dicts; we dispatch
 by name, forward kwargs, and return JSON-safe aligned series.
+
+Operates on the generic candle shape every market-data backend emits:
+``[{open, high, low, close, volume, datetime}, ...]``.
 """
 from __future__ import annotations
 
@@ -31,7 +34,7 @@ def _load_talib_abstract():
 
 
 def _candles_to_inputs(candles: list[dict[str, Any]]) -> dict[str, np.ndarray]:
-    """Turn the provider's candle list into the dict TA-Lib's abstract API wants."""
+    """Turn the candle list into the dict TA-Lib's abstract API wants."""
     if not candles:
         return {k: np.array([], dtype=float) for k in _INPUT_KEYS}
     return {
@@ -130,7 +133,7 @@ def run_indicators(
 
     Args:
         candles: ``[{open, high, low, close, volume, datetime}, ...]``
-            as returned by :func:`YahooClient.get_price_history`.
+            as returned by any provider's ``get_price_history``.
         indicators: list of indicator spec dicts. Each must have
             ``name`` (TA-Lib function name, case-insensitive); other
             keys are forwarded as kwargs to that function. Optional

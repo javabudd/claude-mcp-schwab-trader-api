@@ -15,10 +15,10 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ...logging_utils import attach_provider_logger
+from ...ohlcv import analytics
+from ...ohlcv.ta import run_indicators
 from ...settings import TraiderSettings
-from . import analytics
 from .options_summary import summarize_chain
-from .ta import run_indicators
 from .yahoo_client import YahooClient
 
 YAHOO_BASE = "https://finance.yahoo.com"
@@ -488,9 +488,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         need_extended_hours_data: bool = False,
         risk_free_rate: float = 0.0,
         annualization: float | None = None,
+        include_drawdown_series: bool = False,
     ) -> dict[str, Any]:
         """Return/risk summary: total/annual return, vol, Sharpe, Sortino,
-        max drawdown, Calmar, skew, excess kurtosis."""
+        max drawdown (with peak/trough timestamps), Calmar, skew,
+        excess kurtosis. Set ``include_drawdown_series=True`` to also
+        return the per-bar equity curve and drawdown series."""
         logger.info("analyze_returns symbol=%s", symbol)
         fetched_at = _now_iso()
         try:
@@ -499,7 +502,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 start_date, end_date, need_extended_hours_data,
             )
             result = analytics.returns_metrics(
-                candles, risk_free_rate=risk_free_rate, annualization=annualization,
+                candles,
+                risk_free_rate=risk_free_rate,
+                annualization=annualization,
+                include_drawdown_series=include_drawdown_series,
             )
         except Exception:
             logger.exception("analyze_returns failed symbol=%s", symbol)
@@ -814,6 +820,268 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "days" in result:
             result["days"] = result["days"][-tail:]
             result["n_days"] = len(result["days"])
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
+
+    @mcp.tool()
+    def analyze_support_resistance(
+        symbol: str,
+        period_type: str = "year",
+        period: int = 1,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = False,
+        swing_window: int = 5,
+        max_swings: int = 10,
+        prior_high: float | None = None,
+        prior_low: float | None = None,
+        prior_close: float | None = None,
+    ) -> dict[str, Any]:
+        """Recent swing highs / lows + classic / Fibonacci / Camarilla
+        pivot points. See the Schwab provider's same-named tool for
+        full semantics."""
+        logger.info(
+            "analyze_support_resistance symbol=%s swing_window=%d max_swings=%d",
+            symbol, swing_window, max_swings,
+        )
+        fetched_at = _now_iso()
+        try:
+            candles = _fetch_candles(
+                symbol, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.support_resistance(
+                candles,
+                swing_window=swing_window,
+                max_swings=max_swings,
+                prior_high=prior_high,
+                prior_low=prior_low,
+                prior_close=prior_close,
+            )
+        except Exception:
+            logger.exception("analyze_support_resistance failed symbol=%s", symbol)
+            raise
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
+
+    @mcp.tool()
+    def analyze_anchored_vwap(
+        symbol: str,
+        anchor: int | str | None = None,
+        period_type: str = "day",
+        period: int = 10,
+        frequency_type: str = "minute",
+        frequency: int = 30,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = True,
+        tail: int | None = None,
+    ) -> dict[str, Any]:
+        """Anchored VWAP from ``anchor`` (epoch ms, ISO date/datetime,
+        or ``None`` = first candle). See the Schwab provider's
+        same-named tool for full semantics. Note Yahoo's intraday
+        depth caps (1-min ~7d, sub-hourly ~60d)."""
+        logger.info("analyze_anchored_vwap symbol=%s anchor=%s", symbol, anchor)
+        fetched_at = _now_iso()
+        try:
+            candles = _fetch_candles(
+                symbol, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.anchored_vwap(candles, anchor=anchor)
+        except Exception:
+            logger.exception("analyze_anchored_vwap failed symbol=%s", symbol)
+            raise
+        if tail is not None and tail > 0 and "vwap" in result:
+            result["datetime"] = result["datetime"][-tail:]
+            result["vwap"] = result["vwap"][-tail:]
+            result["n_bars"] = len(result["vwap"])
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
+
+    @mcp.tool()
+    def analyze_donchian_channels(
+        symbol: str,
+        period_window: int = 20,
+        period_type: str = "year",
+        period: int = 1,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = False,
+        tail: int | None = None,
+    ) -> dict[str, Any]:
+        """Rolling Donchian channels (highest-high / lowest-low / mid)
+        over ``period_window`` bars. See the Schwab provider's
+        same-named tool for full semantics."""
+        logger.info(
+            "analyze_donchian_channels symbol=%s window=%d", symbol, period_window,
+        )
+        fetched_at = _now_iso()
+        try:
+            candles = _fetch_candles(
+                symbol, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.donchian_channels(candles, period=period_window)
+        except Exception:
+            logger.exception("analyze_donchian_channels failed symbol=%s", symbol)
+            raise
+        if tail is not None and tail > 0 and "upper" in result:
+            for k in ("datetime", "upper", "lower", "middle"):
+                result[k] = result[k][-tail:]
+            result["n_bars"] = len(result["upper"])
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
+
+    @mcp.tool()
+    def analyze_rolling_correlation(
+        symbol_a: str,
+        symbol_b: str,
+        window: int = 30,
+        period_type: str = "year",
+        period: int = 1,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = False,
+        tail: int | None = None,
+    ) -> dict[str, Any]:
+        """Rolling Pearson correlation of log returns over ``window``
+        bars. See the Schwab provider's same-named tool for full
+        semantics."""
+        logger.info(
+            "analyze_rolling_correlation a=%s b=%s window=%d",
+            symbol_a, symbol_b, window,
+        )
+        fetched_at = _now_iso()
+        try:
+            a = _fetch_candles(
+                symbol_a, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            b = _fetch_candles(
+                symbol_b, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.rolling_correlation(a, b, window=window)
+        except Exception:
+            logger.exception(
+                "analyze_rolling_correlation failed %s/%s", symbol_a, symbol_b,
+            )
+            raise
+        if tail is not None and tail > 0 and "correlation" in result:
+            result["datetime"] = result["datetime"][-tail:]
+            result["correlation"] = result["correlation"][-tail:]
+        return {
+            "source": YAHOO_BASE,
+            "fetched_at": fetched_at,
+            "symbols": [symbol_a, symbol_b],
+            **result,
+        }
+
+    @mcp.tool()
+    def analyze_mean_reversion(
+        symbol: str,
+        period_type: str = "year",
+        period: int = 2,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = False,
+        hurst_max_lag: int = 20,
+        variance_ratio_lags: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Trend vs mean-reversion regime label from Hurst + variance
+        ratio. See the Schwab provider's same-named tool for full
+        semantics."""
+        lags = tuple(variance_ratio_lags) if variance_ratio_lags else (2, 5, 10, 20)
+        logger.info(
+            "analyze_mean_reversion symbol=%s hurst_lag=%d vr_lags=%s",
+            symbol, hurst_max_lag, lags,
+        )
+        fetched_at = _now_iso()
+        try:
+            candles = _fetch_candles(
+                symbol, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.mean_reversion_score(
+                candles,
+                hurst_max_lag=hurst_max_lag,
+                variance_ratio_lags=lags,
+            )
+        except Exception:
+            logger.exception("analyze_mean_reversion failed symbol=%s", symbol)
+            raise
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
+
+    @mcp.tool()
+    def analyze_atr_stop_levels(
+        symbol: str,
+        entry_price: float,
+        side: str = "long",
+        atr_period: int = 14,
+        stop_atr_multiplier: float = 1.5,
+        target_atr_multiplier: float = 3.0,
+        period_type: str = "year",
+        period: int = 1,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = False,
+    ) -> dict[str, Any]:
+        """ATR-based stop / target for a hypothetical entry. See the
+        Schwab provider's same-named tool for full semantics."""
+        logger.info(
+            "analyze_atr_stop_levels symbol=%s entry=%.4f side=%s atr=%d sm=%.2f tm=%.2f",
+            symbol, entry_price, side, atr_period,
+            stop_atr_multiplier, target_atr_multiplier,
+        )
+        fetched_at = _now_iso()
+        try:
+            candles = _fetch_candles(
+                symbol, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.atr_stop_levels(
+                candles,
+                entry_price=entry_price,
+                side=side,
+                atr_period=atr_period,
+                stop_atr_multiplier=stop_atr_multiplier,
+                target_atr_multiplier=target_atr_multiplier,
+            )
+        except Exception:
+            logger.exception("analyze_atr_stop_levels failed symbol=%s", symbol)
+            raise
         return {
             "source": _quote_src(symbol),
             "fetched_at": fetched_at,

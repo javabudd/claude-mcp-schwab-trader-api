@@ -1,8 +1,9 @@
 """Quant analytics over OHLCV candles.
 
-Pure numpy. No scipy/pandas. All functions accept the candle list shape
-the provider emits (``[{open, high, low, close, volume, datetime}, ...]``
-with ``datetime`` in epoch ms UTC) so they compose cleanly with the
+Pure numpy. No scipy/pandas. All functions accept the candle list
+shape every market-data backend in this repo emits
+(``[{open, high, low, close, volume, datetime}, ...]`` with
+``datetime`` in epoch ms UTC) so they compose cleanly with the
 existing fetch path.
 
 Annualization factor is inferred from the median bar spacing unless
@@ -90,10 +91,14 @@ def returns_metrics(
     candles: list[dict[str, Any]],
     risk_free_rate: float = 0.0,
     annualization: float | None = None,
+    include_drawdown_series: bool = False,
 ) -> dict[str, Any]:
     """Summary performance/risk stats for one instrument.
 
     ``risk_free_rate`` is an annualized simple rate (e.g. 0.05 for 5%).
+    Set ``include_drawdown_series=True`` to also return the per-bar
+    equity curve and drawdown series — useful for charting or finding
+    the underwater periods, but pricier on the wire for long histories.
     """
     if len(candles) < 2:
         return {"error": "need at least 2 candles"}
@@ -118,9 +123,11 @@ def returns_metrics(
     peak = np.maximum.accumulate(equity)
     drawdown = equity / peak - 1.0
     max_dd = float(drawdown.min())
+    max_dd_idx = int(np.argmin(drawdown))
+    peak_idx = int(np.argmax(equity[: max_dd_idx + 1])) if max_dd_idx > 0 else 0
     calmar = ann_return / abs(max_dd) if max_dd < 0 else float("nan")
 
-    return _jsonify({
+    out: dict[str, Any] = {
         "n_bars": len(candles),
         "annualization": ann,
         "total_return": total_return,
@@ -129,12 +136,19 @@ def returns_metrics(
         "sharpe": sharpe,
         "sortino": sortino,
         "max_drawdown": max_dd,
+        "max_drawdown_peak_datetime": candles[peak_idx]["datetime"],
+        "max_drawdown_trough_datetime": candles[max_dd_idx]["datetime"],
         "calmar": calmar,
         "skew": _moment(log_ret, 3),
         "excess_kurtosis": _moment(log_ret, 4) - 3.0 if log_ret.size else float("nan"),
         "start_close": float(closes[0]),
         "end_close": float(closes[-1]),
-    })
+    }
+    if include_drawdown_series:
+        out["datetime"] = [c["datetime"] for c in candles]
+        out["equity_curve"] = equity.tolist()
+        out["drawdown_series"] = drawdown.tolist()
+    return _jsonify(out)
 
 
 def realized_volatility(
@@ -612,6 +626,547 @@ def session_ranges(
     })
 
 
+# ---------- support / resistance --------------------------------------
+
+
+def _swing_pivots(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    swing_window: int,
+) -> tuple[list[int], list[int]]:
+    """Fractal swing-high / swing-low indices.
+
+    A bar at index i is a swing high when ``highs[i]`` is strictly
+    greater than the highs of the ``swing_window`` bars on either side.
+    Same idea for swing lows. The leading and trailing
+    ``swing_window`` bars cannot be swings (no full window on one side)
+    so they're skipped.
+    """
+    n = highs.size
+    if n < 2 * swing_window + 1:
+        return [], []
+    sh: list[int] = []
+    sl: list[int] = []
+    for i in range(swing_window, n - swing_window):
+        h = highs[i]
+        l = lows[i]
+        if h > highs[i - swing_window : i].max() and h > highs[i + 1 : i + swing_window + 1].max():
+            sh.append(i)
+        if l < lows[i - swing_window : i].min() and l < lows[i + 1 : i + swing_window + 1].min():
+            sl.append(i)
+    return sh, sl
+
+
+def support_resistance(
+    candles: list[dict[str, Any]],
+    swing_window: int = 5,
+    max_swings: int = 10,
+    prior_high: float | None = None,
+    prior_low: float | None = None,
+    prior_close: float | None = None,
+) -> dict[str, Any]:
+    """Recent swing highs / lows plus pivot-point levels.
+
+    *Swings* use a symmetric fractal: a bar is a swing high when its
+    high is strictly above the highs of ``swing_window`` bars on each
+    side. Returns up to ``max_swings`` of each, most recent first, with
+    ``bars_ago`` so the model can weight them by recency.
+
+    *Pivot points* (classic, Fibonacci, and Camarilla variants) are
+    derived from a prior session's high / low / close. **Pass them
+    explicitly via** ``prior_high`` / ``prior_low`` / ``prior_close``.
+    For daily candles the standard convention is yesterday's H/L/C; for
+    intraday candles, pass the prior daily session's H/L/C — the
+    function does not infer the daily session boundary from intraday
+    bars. If any of the three are omitted, pivots are skipped from the
+    response (swings still returned).
+
+    Pivot formulas:
+
+    - Classic: ``P = (H+L+C)/3``; ``R1 = 2P - L``;
+      ``S1 = 2P - H``; ``R2 = P + (H-L)``; ``S2 = P - (H-L)``;
+      ``R3 = H + 2(P - L)``; ``S3 = L - 2(H - P)``.
+    - Fibonacci: ``P`` as above; ``R1/S1 = P ± 0.382 * (H-L)``;
+      ``R2/S2 = P ± 0.618 * (H-L)``; ``R3/S3 = P ± 1.000 * (H-L)``.
+    - Camarilla: ``R1 = C + 1.1/12 * (H-L)``;
+      ``R2 = C + 1.1/6 * (H-L)``; ``R3 = C + 1.1/4 * (H-L)``;
+      ``R4 = C + 1.1/2 * (H-L)``; ``S{n}`` is the mirror with ``-``.
+    """
+    if not candles:
+        return {"error": "no candles"}
+    highs = np.array([c["high"] for c in candles], dtype=float)
+    lows = np.array([c["low"] for c in candles], dtype=float)
+    n = len(candles)
+
+    sh_idx, sl_idx = _swing_pivots(highs, lows, swing_window)
+    sh_idx = sh_idx[-max_swings:][::-1]
+    sl_idx = sl_idx[-max_swings:][::-1]
+    swing_highs = [
+        {"datetime": candles[i]["datetime"], "price": float(highs[i]), "bars_ago": n - 1 - i}
+        for i in sh_idx
+    ]
+    swing_lows = [
+        {"datetime": candles[i]["datetime"], "price": float(lows[i]), "bars_ago": n - 1 - i}
+        for i in sl_idx
+    ]
+
+    out: dict[str, Any] = {
+        "n_bars": n,
+        "swing_window": swing_window,
+        "swing_highs": swing_highs,
+        "swing_lows": swing_lows,
+    }
+
+    if prior_high is not None and prior_low is not None and prior_close is not None:
+        h, l, c = float(prior_high), float(prior_low), float(prior_close)
+        rng = h - l
+        p = (h + l + c) / 3.0
+        out["pivot_inputs"] = {"high": h, "low": l, "close": c, "range": rng}
+        out["classic_pivots"] = {
+            "P": p,
+            "R1": 2.0 * p - l,
+            "S1": 2.0 * p - h,
+            "R2": p + rng,
+            "S2": p - rng,
+            "R3": h + 2.0 * (p - l),
+            "S3": l - 2.0 * (h - p),
+        }
+        out["fibonacci_pivots"] = {
+            "P": p,
+            "R1": p + 0.382 * rng,
+            "S1": p - 0.382 * rng,
+            "R2": p + 0.618 * rng,
+            "S2": p - 0.618 * rng,
+            "R3": p + 1.000 * rng,
+            "S3": p - 1.000 * rng,
+        }
+        out["camarilla_pivots"] = {
+            "R1": c + 1.1 / 12.0 * rng,
+            "S1": c - 1.1 / 12.0 * rng,
+            "R2": c + 1.1 / 6.0 * rng,
+            "S2": c - 1.1 / 6.0 * rng,
+            "R3": c + 1.1 / 4.0 * rng,
+            "S3": c - 1.1 / 4.0 * rng,
+            "R4": c + 1.1 / 2.0 * rng,
+            "S4": c - 1.1 / 2.0 * rng,
+        }
+    return _jsonify(out)
+
+
+# ---------- anchored VWAP ---------------------------------------------
+
+
+def _parse_anchor_to_ms(anchor: int | str) -> int:
+    if isinstance(anchor, int):
+        return anchor
+    s = str(anchor)
+    # Accept ``YYYY-MM-DD`` or ISO datetime; anchors earlier than the
+    # first candle pin to the first candle.
+    if "T" not in s and " " not in s and len(s) == 10:
+        dt = datetime.fromisoformat(s).replace(tzinfo=_UTC)
+    else:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_UTC)
+    return int(dt.timestamp() * 1000.0)
+
+
+def anchored_vwap(
+    candles: list[dict[str, Any]],
+    anchor: int | str | None = None,
+) -> dict[str, Any]:
+    """Volume-weighted average price anchored to a point in the series.
+
+    Cumulative ``sum(typical_price * volume) / sum(volume)`` from
+    ``anchor`` forward, where typical price is ``(H+L+C)/3``. Common
+    institutional reference price; often acts as soft S/R because
+    large positions accumulated near an anchor (event date, gap day,
+    earnings) are flat at VWAP.
+
+    Args:
+        candles: ``[{open, high, low, close, volume, datetime}, ...]``.
+        anchor: ``None`` (anchor at first candle), an epoch-ms ``int``,
+            or an ISO date / datetime string (UTC). Anchors earlier
+            than the first candle pin to the first candle; anchors
+            after the last candle return ``error``.
+
+    Returns:
+        ``{"anchor_datetime", "anchor_index", "n_bars", "datetime", "vwap",
+        "current_vwap", "current_close", "deviation"}`` where
+        ``deviation`` is ``(close - vwap) / vwap`` (signed).
+    """
+    if not candles:
+        return {"error": "no candles"}
+    n = len(candles)
+    times = np.array([int(c["datetime"]) for c in candles], dtype=np.int64)
+
+    if anchor is None:
+        start = 0
+    else:
+        anchor_ms = _parse_anchor_to_ms(anchor)
+        idx = int(np.searchsorted(times, anchor_ms, side="left"))
+        if idx >= n:
+            return {"error": "anchor is after the last candle"}
+        start = idx
+
+    sub = candles[start:]
+    highs = np.array([c["high"] for c in sub], dtype=float)
+    lows = np.array([c["low"] for c in sub], dtype=float)
+    closes = np.array([c["close"] for c in sub], dtype=float)
+    vols = np.array([c["volume"] for c in sub], dtype=float)
+    typical = (highs + lows + closes) / 3.0
+
+    cum_pv = np.cumsum(typical * vols)
+    cum_v = np.cumsum(vols)
+    vwap = np.where(cum_v > 0, cum_pv / np.maximum(cum_v, 1e-12), np.nan)
+
+    current_vwap = float(vwap[-1]) if vwap.size and math.isfinite(vwap[-1]) else float("nan")
+    current_close = float(closes[-1]) if closes.size else float("nan")
+    deviation = (
+        (current_close - current_vwap) / current_vwap
+        if math.isfinite(current_vwap) and current_vwap != 0
+        else float("nan")
+    )
+
+    return _jsonify({
+        "anchor_datetime": int(times[start]),
+        "anchor_index": start,
+        "n_bars": int(vwap.size),
+        "datetime": times[start:].tolist(),
+        "vwap": vwap.tolist(),
+        "current_vwap": current_vwap,
+        "current_close": current_close,
+        "deviation": deviation,
+    })
+
+
+# ---------- Donchian channels -----------------------------------------
+
+
+def donchian_channels(
+    candles: list[dict[str, Any]],
+    period: int = 20,
+) -> dict[str, Any]:
+    """Donchian channel: rolling max-of-high / min-of-low / midline.
+
+    Classic breakout/range visualization. Upper = highest high over the
+    last ``period`` bars; lower = lowest low; middle = midpoint. The
+    current bar contributes to its own window (so a fresh new high
+    appears as ``close == upper``).
+
+    Returns aligned series plus a ``position`` label for the last bar:
+    ``"above_upper"`` when ``close > upper`` (rare; it usually equals),
+    ``"at_upper"`` / ``"at_lower"`` when within 0.05% of the boundary,
+    ``"in_band"`` otherwise.
+    """
+    if not candles:
+        return {"error": "no candles"}
+    n = len(candles)
+    if n < period:
+        return {"error": f"need at least {period} candles"}
+
+    highs = np.array([c["high"] for c in candles], dtype=float)
+    lows = np.array([c["low"] for c in candles], dtype=float)
+    closes = np.array([c["close"] for c in candles], dtype=float)
+    times = [c["datetime"] for c in candles]
+
+    upper: list[float | None] = [None] * n
+    lower: list[float | None] = [None] * n
+    middle: list[float | None] = [None] * n
+    for i in range(period - 1, n):
+        u = float(highs[i - period + 1 : i + 1].max())
+        l = float(lows[i - period + 1 : i + 1].min())
+        upper[i] = u
+        lower[i] = l
+        middle[i] = (u + l) / 2.0
+
+    cu = upper[-1]
+    cl = lower[-1]
+    cm = middle[-1]
+    cc = float(closes[-1])
+    tol = 5e-4
+    if cu is None or cl is None:
+        position = "unknown"
+    elif cc > cu:
+        position = "above_upper"
+    elif cc < cl:
+        position = "below_lower"
+    elif cu and abs(cc - cu) / cu < tol:
+        position = "at_upper"
+    elif cl and abs(cc - cl) / cl < tol:
+        position = "at_lower"
+    else:
+        position = "in_band"
+
+    return _jsonify({
+        "period": period,
+        "n_bars": n,
+        "datetime": times,
+        "upper": upper,
+        "lower": lower,
+        "middle": middle,
+        "current_upper": cu,
+        "current_lower": cl,
+        "current_middle": cm,
+        "current_close": cc,
+        "position": position,
+    })
+
+
+# ---------- mean-reversion / trend regime -----------------------------
+
+
+def _hurst_exponent(log_prices: np.ndarray, max_lag: int) -> float:
+    """Hurst exponent via simple lag-of-std scaling.
+
+    For lags k = 2..max_lag, compute std of (log_p[t] - log_p[t-k]).
+    Slope of log(std) on log(k) is the Hurst exponent. ``H > 0.5``:
+    persistent / trending. ``H < 0.5``: anti-persistent / mean-
+    reverting. ``H = 0.5``: random walk. Crude estimator (R/S analysis
+    is more rigorous) but well-known and good enough for a regime
+    label.
+    """
+    if log_prices.size < max_lag + 2:
+        return float("nan")
+    lags = np.arange(2, max_lag + 1)
+    stds = []
+    for k in lags:
+        diffs = log_prices[k:] - log_prices[:-k]
+        s = float(np.std(diffs, ddof=1)) if diffs.size > 1 else float("nan")
+        stds.append(s)
+    arr = np.array(stds, dtype=float)
+    valid = (arr > 0) & np.isfinite(arr)
+    if valid.sum() < 3:
+        return float("nan")
+    x = np.log(lags[valid].astype(float))
+    y = np.log(arr[valid])
+    slope, _ = np.polyfit(x, y, 1)
+    return float(slope)
+
+
+def _variance_ratio(log_returns: np.ndarray, q: int) -> float:
+    """Lo-MacKinlay variance ratio at lag q.
+
+    VR(q) = Var(r_q) / (q * Var(r_1)). VR > 1 indicates positive serial
+    correlation (trending), VR < 1 indicates negative (mean reverting),
+    VR = 1 is random-walk consistent.
+    """
+    if log_returns.size < q + 2:
+        return float("nan")
+    var1 = float(np.var(log_returns, ddof=1))
+    if var1 == 0:
+        return float("nan")
+    rq = np.array([log_returns[i : i + q].sum() for i in range(log_returns.size - q + 1)])
+    if rq.size < 2:
+        return float("nan")
+    varq = float(np.var(rq, ddof=1))
+    return varq / (q * var1)
+
+
+def mean_reversion_score(
+    candles: list[dict[str, Any]],
+    hurst_max_lag: int = 20,
+    variance_ratio_lags: tuple[int, ...] = (2, 5, 10, 20),
+) -> dict[str, Any]:
+    """Regime label: trending vs mean-reverting vs random walk.
+
+    Combines two estimators on log prices/returns:
+
+    - **Hurst exponent** (lag-of-std scaling). ``H ≈ 0.5`` is random
+      walk, ``> 0.5`` trending, ``< 0.5`` mean reverting.
+    - **Variance ratio** at several lags. ``VR > 1`` trending,
+      ``VR < 1`` mean reverting, ``VR ≈ 1`` random walk.
+
+    These are estimators, not tests — they don't reject random walk
+    at any p-value. Use the regime label to *bias strategy choice*
+    (trend-follow vs revert), not to decide a trade in isolation.
+
+    Args:
+        candles: ``[{open, high, low, close, volume, datetime}, ...]``.
+        hurst_max_lag: max lag for the Hurst regression. Higher needs
+            more data; default 20 wants ~22 bars minimum.
+        variance_ratio_lags: lags to evaluate VR at. Default
+            ``(2, 5, 10, 20)``.
+
+    Returns:
+        ``{"n_bars", "hurst_exponent", "variance_ratios": {q: vr},
+        "mean_vr_excluding_1": ..., "regime": "trending" |
+        "mean_reverting" | "random_walk", "interpretation": "..."}``.
+    """
+    if len(candles) < max(hurst_max_lag + 2, max(variance_ratio_lags) + 2):
+        return {"error": "not enough candles for the requested lags"}
+    closes = _closes(candles)
+    log_prices = np.log(closes)
+    log_ret = _log_returns(closes)
+
+    h = _hurst_exponent(log_prices, hurst_max_lag)
+    vrs = {int(q): _variance_ratio(log_ret, int(q)) for q in variance_ratio_lags}
+
+    finite_vrs = [v for v in vrs.values() if math.isfinite(v)]
+    mean_vr = float(np.mean(finite_vrs)) if finite_vrs else float("nan")
+
+    # Combine: trending if both signals agree on trend; mean-reverting if
+    # they agree on revert; otherwise random walk.
+    trend_votes = 0
+    revert_votes = 0
+    if math.isfinite(h):
+        if h > 0.55:
+            trend_votes += 1
+        elif h < 0.45:
+            revert_votes += 1
+    if math.isfinite(mean_vr):
+        if mean_vr > 1.1:
+            trend_votes += 1
+        elif mean_vr < 0.9:
+            revert_votes += 1
+
+    if trend_votes >= 2:
+        regime = "trending"
+    elif revert_votes >= 2:
+        regime = "mean_reverting"
+    elif trend_votes > revert_votes:
+        regime = "weak_trend"
+    elif revert_votes > trend_votes:
+        regime = "weak_mean_revert"
+    else:
+        regime = "random_walk"
+
+    interp = {
+        "trending": "Both Hurst and VR indicate persistence. Trend-following bias may pay; fading rallies/dips is risky.",
+        "weak_trend": "One estimator suggests trend, the other is neutral. Soft trend bias.",
+        "random_walk": "No clear regime. Don't lean on either trend or mean-revert assumptions.",
+        "weak_mean_revert": "One estimator suggests mean reversion, the other is neutral. Soft revert bias.",
+        "mean_reverting": "Both Hurst and VR indicate anti-persistence. Mean-reversion bias; trend-following likely whipsaws.",
+    }[regime]
+
+    return _jsonify({
+        "n_bars": len(candles),
+        "hurst_exponent": h,
+        "variance_ratios": vrs,
+        "mean_vr_excluding_1": mean_vr,
+        "regime": regime,
+        "interpretation": interp,
+    })
+
+
+# ---------- ATR-based stop / target ladder ----------------------------
+
+
+def _wilder_atr(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    period: int,
+) -> float:
+    """Wilder's ATR over the last ``period`` bars.
+
+    Computed manually so this module stays pure-numpy. TR_t = max(H-L,
+    |H-C_prev|, |L-C_prev|). ATR is Wilder's smoothed average:
+    seed = mean of first ``period`` TRs, then
+    ATR_t = (ATR_{t-1} * (period-1) + TR_t) / period.
+    """
+    n = highs.size
+    if n < period + 1:
+        return float("nan")
+    prev_close = closes[:-1]
+    h = highs[1:]
+    l = lows[1:]
+    tr = np.maximum.reduce([h - l, np.abs(h - prev_close), np.abs(l - prev_close)])
+    if tr.size < period:
+        return float("nan")
+    atr = float(tr[:period].mean())
+    for i in range(period, tr.size):
+        atr = (atr * (period - 1) + float(tr[i])) / period
+    return atr
+
+
+def atr_stop_levels(
+    candles: list[dict[str, Any]],
+    entry_price: float,
+    side: str = "long",
+    atr_period: int = 14,
+    stop_atr_multiplier: float = 1.5,
+    target_atr_multiplier: float = 3.0,
+) -> dict[str, Any]:
+    """ATR-based stop loss and target for a hypothetical entry.
+
+    Computes Wilder's ATR over the last ``atr_period`` bars in the
+    candle history, then projects stop / target as multiples of ATR
+    away from ``entry_price`` in the appropriate direction. Bridges
+    raw TA into RISK.md sizing — given an account risk budget the
+    caller can derive position size from ``risk_per_unit``.
+
+    Args:
+        candles: ``[{open, high, low, close, volume, datetime}, ...]``.
+            Must contain at least ``atr_period + 1`` bars.
+        entry_price: Hypothetical entry. Use the user's intended limit
+            price, not necessarily the current close.
+        side: ``"long"`` or ``"short"``.
+        atr_period: Wilder smoothing period. 14 is the conventional
+            default; 20 is also common for daily charts.
+        stop_atr_multiplier: Stop is ``stop_atr_multiplier * ATR`` away
+            from entry. 1.5–2.0 is typical for swing trades; 1.0 for
+            tighter intraday work.
+        target_atr_multiplier: Target is ``target_atr_multiplier * ATR``
+            away from entry on the favorable side. R/R is
+            ``target_atr_multiplier / stop_atr_multiplier``.
+
+    Returns:
+        ``{"side", "entry_price", "atr", "atr_period", "stop_loss",
+        "target", "risk_per_unit", "reward_per_unit",
+        "risk_reward_ratio", "current_close",
+        "current_distance_to_entry_atr", ...}``. Distances are in ATRs
+        so the model can sanity-check whether the entry is already
+        near the stop or extended past the target.
+    """
+    if entry_price <= 0:
+        return {"error": "entry_price must be positive"}
+    side = side.lower()
+    if side not in ("long", "short"):
+        raise ValueError(f"unknown side: {side!r}")
+    if len(candles) < atr_period + 1:
+        return {"error": f"need at least {atr_period + 1} candles"}
+
+    highs = np.array([c["high"] for c in candles], dtype=float)
+    lows = np.array([c["low"] for c in candles], dtype=float)
+    closes = np.array([c["close"] for c in candles], dtype=float)
+    atr = _wilder_atr(highs, lows, closes, atr_period)
+    if not math.isfinite(atr) or atr <= 0:
+        return {"error": "ATR computation failed (zero or non-finite)"}
+
+    stop_offset = stop_atr_multiplier * atr
+    target_offset = target_atr_multiplier * atr
+    if side == "long":
+        stop = entry_price - stop_offset
+        target = entry_price + target_offset
+    else:
+        stop = entry_price + stop_offset
+        target = entry_price - target_offset
+
+    risk = abs(entry_price - stop)
+    reward = abs(target - entry_price)
+    rr = reward / risk if risk > 0 else float("nan")
+    current_close = float(closes[-1])
+    distance_atr = (current_close - entry_price) / atr
+
+    return _jsonify({
+        "side": side,
+        "entry_price": float(entry_price),
+        "atr": atr,
+        "atr_period": atr_period,
+        "stop_atr_multiplier": stop_atr_multiplier,
+        "target_atr_multiplier": target_atr_multiplier,
+        "stop_loss": float(stop),
+        "target": float(target),
+        "risk_per_unit": float(risk),
+        "reward_per_unit": float(reward),
+        "risk_reward_ratio": rr,
+        "current_close": current_close,
+        "current_distance_to_entry_atr": float(distance_atr),
+        "n_bars": len(candles),
+    })
+
+
 __all__: Iterable[str] = [
     "returns_metrics",
     "realized_volatility",
@@ -622,4 +1177,9 @@ __all__: Iterable[str] = [
     "rolling_zscore",
     "pair_spread",
     "session_ranges",
+    "support_resistance",
+    "anchored_vwap",
+    "donchian_channels",
+    "mean_reversion_score",
+    "atr_stop_levels",
 ]

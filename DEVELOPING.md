@@ -15,6 +15,8 @@ touching the code.
 - [Running locally](#running-locally)
 - [Logging](#logging)
 - [Adding a new provider](#adding-a-new-provider)
+- [Shared modules](#shared-modules)
+  - [ohlcv (TA + analytics)](#ohlcv-ta--analytics)
 - Per-provider dev notes
   - [schwab](#schwab)
   - [yahoo](#yahoo)
@@ -57,6 +59,10 @@ src/traider/
   server.py                # FastMCP setup, PROVIDERS map, lazy loader
   settings.py              # TraiderSettings (TRAIDER_PROVIDERS, log_dir)
   logging_utils.py         # attach_provider_logger(logger_name, path)
+  ohlcv/
+    __init__.py            # re-exports analytics + ta
+    ta.py                  # TA-Lib indicator runner (provider-agnostic)
+    analytics.py           # pure-numpy return/risk/regime/structure
   providers/
     __init__.py            # (empty — providers are imported lazily)
     schwab/
@@ -64,14 +70,10 @@ src/traider/
       tools.py             # def register(mcp, settings) — the MCP surface
       schwab_client.py     # OAuth-authenticated httpx client
       auth.py              # interactive authorization-code flow
-      ta.py                # TA-Lib indicator runner
-      analytics.py         # pure-numpy return/risk/correlation
     yahoo/
       __init__.py
       tools.py
       yahoo_client.py      # yfinance wrapper, Schwab-shaped payloads
-      ta.py                # TA-Lib indicator runner (twin of schwab/ta.py)
-      analytics.py         # (twin of schwab/analytics.py)
     fred/
       __init__.py
       tools.py
@@ -119,10 +121,15 @@ src/traider/
 
 Each provider is **self-contained under its directory** — imports
 inside a provider are relative (`from .client import X`, `from ..
-logging_utils import …`). Providers don't import from each other.
-`ta.py` / `analytics.py` duplicate between `schwab/` and `yahoo/`
-intentionally; merging them into a shared module would couple the two
-market-data backends in a way the provider system is designed to avoid.
+logging_utils import …`). Providers don't import from each other, but
+they may import from package-level shared modules (`logging_utils`,
+`ohlcv`, `settings`). The `ohlcv` package holds provider-agnostic TA
++ quant analytics that operate on the generic candle shape every
+market-data backend emits; both `schwab/tools.py` and `yahoo/tools.py`
+consume it via `from ...ohlcv import analytics` and
+`from ...ohlcv.ta import run_indicators`. See
+[Shared modules → ohlcv](#ohlcv-ta--analytics) for the contract and
+the rationale for what does and does not belong there.
 
 ## How the provider system works
 
@@ -265,6 +272,109 @@ Conventions shared across providers:
 - Every response that hits an upstream should include a `source` URL
   and `fetched_at` timestamp if the upstream doesn't already provide
   one, so the analyst can cite it.
+
+---
+
+## Shared modules
+
+### ohlcv (TA + analytics)
+
+`src/traider/ohlcv/` holds the TA-Lib indicator runner (`ta.py`) and
+the pure-numpy quant analytics (`analytics.py`). Both operate on the
+generic candle-list shape every market-data backend emits:
+`[{open, high, low, close, volume, datetime}, ...]` with `datetime`
+in epoch ms UTC. Nothing in here imports from a specific provider —
+this is the boundary where market-data backends agree on a schema.
+
+**What lives here.** Stateless, pure-numpy (or pure-TA-Lib) functions
+that take the candle shape (or a dict of candle lists, for cross-asset
+analytics) and return a JSON-safe dict. No HTTP, no caching, no
+provider-specific symbology. If a function needs anything beyond the
+candle dict to work, it takes that as an argument.
+
+**What does NOT live here.** Anything that knows about a specific
+upstream API, OAuth, ticker conventions (Schwab's `$VIX` vs Yahoo's
+`^VIX`), or response wrappers. Those are provider concerns; the tool
+wrapper in `providers/<name>/tools.py` is the layer that adapts the
+provider's payload to the candle shape and adds `source` /
+`fetched_at` to the response.
+
+**Public surface (current).**
+
+- `ta.run_indicators(candles, indicators, tail=None)` — TA-Lib
+  pass-through.
+- `analytics.returns_metrics(candles, ...)` — Sharpe / Sortino /
+  Calmar / max drawdown / skew / kurtosis. Set
+  `include_drawdown_series=True` to also return the per-bar equity
+  curve and drawdown series.
+- `analytics.realized_volatility(candles, method=...)` — close-to-close,
+  Parkinson, Garman-Klass, Rogers-Satchell.
+- `analytics.correlation_matrix(candles_by_symbol)` — Pearson on log
+  returns, inner-joined on timestamp.
+- `analytics.rolling_correlation(a, b, window)` — rolling Pearson on
+  two assets.
+- `analytics.beta(asset, benchmark, ...)` — beta / alpha / R².
+- `analytics.volatility_regime(candles, ...)` — regime label from
+  rolling vol z-score against trailing distribution.
+- `analytics.rolling_zscore(candles, window, source)` — rolling z of
+  close or log returns.
+- `analytics.pair_spread(a, b, ...)` — OLS hedge ratio + spread
+  z-score + AR(1) half-life.
+- `analytics.session_ranges(candles, ...)` — Asia/London/NY session
+  buckets with tight-Asia and London-sweep flags.
+- `analytics.support_resistance(candles, ...)` — fractal swing
+  highs/lows + classic / Fibonacci / Camarilla pivot points (pivots
+  require caller-supplied prior H/L/C).
+- `analytics.anchored_vwap(candles, anchor=...)` — VWAP from a point
+  in the series (epoch ms, ISO date/datetime, or `None`).
+- `analytics.donchian_channels(candles, period)` — rolling
+  highest-high / lowest-low / midline.
+- `analytics.mean_reversion_score(candles, ...)` — Hurst exponent +
+  Lo-MacKinlay variance ratio combined into a regime label.
+- `analytics.atr_stop_levels(candles, entry, side, ...)` — Wilder
+  ATR + stop / target / R:R for a hypothetical entry.
+
+**Things that will bite you.**
+
+- **Annualization is inferred from bar spacing.** Most analytics that
+  return annualized stats accept an `annualization` override; for
+  irregular bars or non-RTH intraday data, pass it explicitly
+  (daily=252, weekly=52, monthly=12, 1-min RTH≈98280). The inference
+  uses median bar spacing — it works for clean daily/weekly/monthly
+  series but is noisy on extended-hours data.
+- **JSON has no NaN.** `_jsonify` walks the result tree and converts
+  NaN/inf/non-finite numpy floats to `None`. Don't return raw
+  `np.nan` from a new function — always pass through the helper.
+- **Hurst / variance ratio are estimators, not tests.** They don't
+  reject the random-walk null at any p-value. The regime label is a
+  bias for strategy choice, not a trade signal.
+- **Pivot points require caller-supplied prior session H/L/C.** The
+  `support_resistance` function does not infer the daily session
+  boundary from intraday bars. If `prior_high` / `prior_low` /
+  `prior_close` are omitted, pivots are skipped (swings still
+  returned).
+- **TA-Lib still loads lazily.** `ta.py` imports `talib.abstract`
+  only on the first call to `run_indicators`, so the MCP server can
+  still start for non-TA tools when TA-Lib isn't installed.
+  Preserve that pattern if you add new TA-Lib-dependent functions
+  here.
+- **No pandas, no scipy.** Pure numpy keeps the dep surface narrow
+  and the analytics composable. Don't reach for either; rolling
+  stats are a few lines of numpy.
+
+**What not to do.**
+
+- Don't add functions that call into a specific provider's client.
+  Take the candle shape as input.
+- Don't add caching. These are pure functions; a stale cache hit
+  defeats the freshness contract callers rely on.
+- Don't reshape the candle dict. New analytics should accept the
+  same `[{open, high, low, close, volume, datetime}, ...]` shape so
+  callers can pipe `get_price_history` output through without
+  munging.
+- Don't introduce per-provider variants. If two backends emit
+  candles in different shapes, the right fix is to normalize at the
+  provider layer, not to fork the analytics.
 
 ---
 
@@ -421,9 +531,9 @@ without (a) Office installed and (b) a plan to use
   to a pure-Python reimplementation — indicator outputs won't match
   what users expect from TA-Lib.
 - **TA-Lib warmup NaNs.** Indicators need history before producing a
-  value (SMA(20) returns NaN for the first 19 points). `ta.py`
-  converts those to JSON `null`; don't strip them — the positions
-  have to stay aligned with `datetime`.
+  value (SMA(20) returns NaN for the first 19 points). The shared
+  `ohlcv/ta.py` converts those to JSON `null`; don't strip them —
+  the positions have to stay aligned with `datetime`.
 - **Series size.** `run_technical_analysis` returns one value per
   candle per indicator by default. A year of 1-minute bars × several
   indicators can blow up the response. Push callers toward `tail` or
@@ -491,9 +601,9 @@ inventing a response.
   `projection="fundamental"`. Don't add more callers without reason.
 - **Timestamps.** yfinance returns pandas Timestamps with tz. The
   client converts to UTC epoch ms to match the Schwab candle schema.
-  If you change the conversion, make sure `analytics.py` still sees
-  strictly increasing ms values — it infers annualization from bar
-  spacing.
+  If you change the conversion, make sure `ohlcv/analytics.py` still
+  sees strictly increasing ms values — it infers annualization from
+  bar spacing.
 - **Splits / dividends.** `history(..., auto_adjust=False)` gives raw
   OHLC; switching to adjusted prices would change the outputs of
   every `analyze_*` tool. Don't flip the default without updating
