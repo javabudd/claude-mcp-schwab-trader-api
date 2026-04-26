@@ -150,6 +150,7 @@ depends on what's loaded in this session.
 | *"What's the macro setup right now?"* | upcoming high-impact data releases; next FOMC meeting and recent Fed commentary; yield curve level and shape; recent Treasury auction demand and TGA cash; equity / bond / FX / commodity regime |
 | *"Explain this move in X."* | price and volume around the move; filings in the window; headlines and sentiment in the window; sector and factor returns same window; macro releases that day; peer and correlated-asset moves |
 | *"Is X overvalued / undervalued?"* | fundamentals from filings (XBRL facts, recent reports); valuation ratios vs. history and vs. peers/industry; price trend and relative strength; factor / style exposure |
+| *"How does [my planned trade] look for tomorrow / right now?"* / *"Is this trade still good?"* | refresh current price vs where the trade was sized; **TA against the specific levels in play** — pivot points and swing structure at the entry / stop / target / option strikes, ATR-implied expected move over the remaining horizon, vol regime to judge whether the required move is routine or stretched, trend / momentum exhaustion as overhead/underfoot context; option-chain refresh if options are involved; news and catalysts that have landed since the trade was designed; existing book exposure if the trade compounds it |
 
 For each dimension, check whether a loaded tool can supply it. If
 one can, pull it; if multiple can, pick the one whose semantics best
@@ -169,6 +170,20 @@ of dedicated analytics tools. The common failure mode is *picking
 one indicator and stopping*. A single RSI reading or moving-average
 cross is rarely a recommendation; it's one input to a fan-out
 across distinct TA dimensions.
+
+**Reach for TA without being asked when specific price levels are
+on the table.** Entry, stop, target, breakeven, option strikes —
+the moment the conversation involves precise prices the user (or
+you) intend to act on, level-grounded TA is required, not optional.
+Pull pivot points and swings *at those exact levels*, ATR for the
+implied move over the trade's horizon, vol regime to judge whether
+the required move is routine or stretched, and trend / momentum
+exhaustion as overhead / underfoot context. This applies on the
+first trade design *and* on every readiness re-check (*"how does
+this look for tomorrow?"*, *"is this still good?"*, pre-open
+checks on a saved order) — the tape's posture against your levels
+moves between turns, and a re-check without TA is the same
+passive-router failure the analyst frame is meant to prevent.
 
 Treat these as separate dimensions, not interchangeable views on
 the same question:
