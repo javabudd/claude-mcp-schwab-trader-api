@@ -50,6 +50,8 @@ services:
       # restarts is the whole point of the cache — without this volume
       # every restart would re-fetch the full set.
       - ${HOME}/.cache/traider-factor:/cache
+      # Traider intents database
+      - ${HOME}/.traider/intents.db:/root/.traider/intents.db
     ports:
       - "8765:8765"
     stdin_open: true
