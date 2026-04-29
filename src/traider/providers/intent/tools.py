@@ -291,10 +291,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
     ) -> dict[str, Any]:
         """List trade intents, newest first, filtered by the given keys.
 
-        Pull this whenever the user asks about an open position or is
-        about to act on one — the original thesis, levels, and
-        catalysts are what tells you why each share or contract is in
-        the book. Filter by ``symbol`` for per-name reasoning, by
+        **Call this before recommending action on any held position.**
+        Intent records are authoritative on stops, targets, sizing
+        rules (concentration caps, trim ladders), catalyst plans, and
+        tax notes — the original thesis, levels, and catalysts are
+        what tell you why each share or contract is in the book. A
+        recommendation that contradicts an open intent's stated
+        discipline is a failure of analysis, not a contribution to
+        it: defer to the intent's framework, flag drift from it, and
+        recommend within it.
+
+        Filter by ``symbol`` for per-name reasoning, by
         ``status="open"`` for everything currently in the book, by
         ``account_id`` to scope to a single brokerage account.
 

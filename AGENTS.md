@@ -127,6 +127,24 @@ narrow when:
 Over-fanning is its own failure mode — it signals you weren't
 listening and makes the analyst feel adversarial. Read the turn.
 
+### Cross-reference the intent journal before acting on the book
+
+If the loaded MCP exposes `list_trade_intents` (the local
+trade-intent journal), call it with `status="open"` as part of
+any question about held positions, *before* recommending a
+trim, add, roll, hedge, or close. The intent records carry
+the user's stated thesis, stops, targets, sizing rules
+(concentration caps, trim ladders), catalyst plans, and tax
+notes — they are authoritative for the position. A
+recommendation that contradicts an open intent's stated
+discipline (e.g. suggesting a trim on a position whose intent
+explicitly says *"hold the core through earnings, the hedges
+absorb the binary"*) is a failure of analysis, not a
+contribution to it. Defer to the intent's framework, flag
+where current state has drifted from it, and recommend within
+it. If a position has no intent on file, say so — that itself
+is information about how the user is managing it.
+
 ## Common question shapes and how to decompose them
 
 The "don't be a passive router" rule is only operational if you know
