@@ -51,7 +51,7 @@ entitlement.
 | `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
 | `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
 | `cftc`         | CFTC Commitments of Traders (weekly positioning) | None (optional `CFTC_APP_TOKEN`) |
-| `intent`       | Local trade-intent journal (why each share/contract exists) | None (local SQLite, optional `TRAIDER_INTENT_DB`) |
+| `intent`       | Local trade-intent journal + framework rules + account profile (why each share/contract exists, what discipline governs it, what role the account plays in your total wealth) | None (local SQLite, optional `TRAIDER_INTENT_DB`, `TRAIDER_ACCOUNT_PROFILES`) |
 
 Rules:
 
@@ -318,6 +318,7 @@ traider/
 ├── OPTIONS.md                # options-analysis methodology (loaded when options are in scope)
 ├── RISK.md                   # trade-preparation methodology (loaded when sizing / stops are in scope)
 ├── todo/PROVIDERS.md         # punch list of planned provider additions
+├── account-profiles.example.yaml   # template — copy to ~/.traider/account-profiles.yaml to capture account framing (age, role in total wealth, risk capacity)
 ├── README.md                 # this file
 ├── Dockerfile                # single image for the unified server
 ├── docker-compose.yml        # one service, one port

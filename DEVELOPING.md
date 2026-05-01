@@ -1446,3 +1446,69 @@ about why that's still consistent with the AGENTS.md rule:
 - Don't ship a destructive migration. SQLite ``ALTER TABLE`` is
   fine for adding columns; if a breaking change is ever needed,
   ship a new column and write a migration that reads the old one.
+
+#### Account profile (sub-feature of the intent provider)
+
+**What it is.** A user-authored YAML file capturing framing about
+each account they trade out of: age, role in total wealth
+(``trading-sleeve`` / ``primary-wealth`` / ``retirement`` / …),
+risk capacity, and analyst-facing notes. Surfaced through MCP
+tools so the analyst doesn't re-ask the same clarifying
+questions every session.
+
+**Storage.** Plain YAML at ``~/.traider/account-profiles.yaml``
+(override with ``TRAIDER_ACCOUNT_PROFILES``). Cloners get a
+documented template at the repo root
+(``account-profiles.example.yaml``); copying it is optional —
+missing file is handled gracefully. No DB, no migrations: this
+is once-a-year metadata that's friendlier to edit in a text
+editor than through a setter tool.
+
+**Tools.**
+
+- ``get_account_profile(account_id=None)`` — returns the empty
+  baseline merged with ``defaults:``, then merged with the
+  per-account block if ``account_id`` matches a key in
+  ``accounts:``. Always returns a dict (never errors); carries
+  ``_has_file`` so callers can tell whether anything is
+  configured at all.
+- ``list_account_profiles`` — full dump for discovery
+  (``defaults`` + every configured account).
+- ``reload_account_profiles`` — re-read from disk after the user
+  edits the file mid-session.
+
+``get_position_context(symbol)`` also includes the profile
+bundle: ``defaults`` always present plus a ``by_account`` map
+keyed by every unique ``account_id`` that appeared on the open
+intents for the symbol, so multi-account users see the right
+framing per intent.
+
+**Soft-fail by design.** Missing file, malformed YAML, wrong
+top-level shape, or an empty document — all log a warning and
+return an empty index. Profile data is *framing*, not data the
+analysis depends on for correctness; a broken profile YAML must
+not break ``get_position_context``. The model is told via
+``AGENTS.md`` to ask the user when fields are blank rather than
+guessing.
+
+**Schema is intentionally loose.** Documented fields are
+``user_age``, ``total_wealth_context``, ``role``,
+``risk_capacity``, ``description``, ``notes_to_analyst``.
+Unknown keys pass through verbatim with an info log — users can
+add their own structured fields without a code change. Don't
+tighten this into a strict schema unless a real downstream
+consumer needs the guarantee.
+
+**What not to do.**
+
+- Don't add a setter tool. Static metadata wants a deliberate
+  ``vim`` edit; a tool-mediated write invites the model to
+  silently mutate framing mid-session and creates a validation
+  surface that doesn't earn its complexity.
+- Don't move profiles into ``rules/``. Rules describe *what to
+  do* per position class; profiles describe *facts about the
+  account*. Different cardinality, different lifecycle — keep
+  them separate.
+- Don't import ``schwab`` here to auto-populate from
+  ``hashValue``. Profile keys are user-chosen on purpose so the
+  same alias survives a re-auth that rotates the hash.

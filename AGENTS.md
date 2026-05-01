@@ -155,6 +155,26 @@ where current state has drifted from it, and recommend within
 it. If a position has no intent on file, say so — that itself
 is information about how the user is managing it.
 
+### Check the account profile before framing-dependent advice
+
+If the loaded MCP exposes `get_account_profile` (the local
+account-profile loader), call it before reasoning about
+allocation, sizing relative to net worth, dry-powder levels, or
+*"is this too aggressive / conservative for my age."* The
+profile carries user-authored framing the brokerage API
+*can't* supply: the user's age, the role this account plays
+in their total wealth (`trading-sleeve` vs `primary-wealth` vs
+`retirement` vs …), risk capacity, and analyst-facing notes.
+The same 27% T-bill allocation looks "appropriately tactical"
+in a trading sleeve and "wildly over-conservative" in a
+primary-wealth account at age 37 — without the profile you
+can't tell which framework applies, and a confident answer
+under the wrong framing is worse than asking. If
+`_has_file: false` in the response, no profile has been
+configured: ask the user the framing questions you need (and
+mention `account-profiles.example.yaml` at the repo root
+captures the answers persistently). Don't fabricate a frame.
+
 ## Common question shapes and how to decompose them
 
 The "don't be a passive router" rule is only operational if you know

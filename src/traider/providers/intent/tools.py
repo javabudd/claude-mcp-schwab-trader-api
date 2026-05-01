@@ -37,6 +37,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
+from . import account_profile as _profile_mod
 from . import rules as _rules_mod
 from .store import (
     VALID_CLASSES,
@@ -635,6 +636,85 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "rules": [r.summary() for r in index.all()],
         }
 
+    # ------------------------------------------------------------------
+    # Account profile surface
+
+    @mcp.tool()
+    def get_account_profile(account_id: str | None = None) -> dict[str, Any]:
+        """Return the user's account profile (defaults + per-account merge).
+
+        Profiles are user-authored YAML at
+        ``~/.traider/account-profiles.yaml`` (override with
+        ``TRAIDER_ACCOUNT_PROFILES``) capturing framing the brokerage
+        API can't supply: the user's age, the role this account plays
+        in their total wealth (``trading-sleeve`` vs
+        ``primary-wealth`` vs ``retirement``), risk capacity, and
+        analyst-facing notes.
+
+        **Call this on allocation, sizing, or "is this too
+        aggressive/conservative for my age" questions** — before
+        applying any general-purpose framework like "60/40 at 37" or
+        "cash drag is high." The user's framing of *this* account
+        determines whether such heuristics apply.
+
+        If no profile file exists, returns an empty profile (every
+        field ``None``); ``_has_file: False`` indicates no file was
+        found. In that case, ask the user the framing questions you
+        need rather than guessing — and consider pointing them at
+        ``account-profiles.example.yaml`` at the repo root.
+
+        Args:
+            account_id: User-chosen key from the YAML's ``accounts:``
+                block (a friendly alias like ``"schwab-trading"``, or
+                a Schwab ``hashValue`` if the user keyed by that).
+                ``None`` returns just the ``defaults:`` block.
+
+        Returns:
+            Merged profile dict. Always contains the documented
+            fields (``user_age``, ``total_wealth_context``, ``role``,
+            ``risk_capacity``, ``description``, ``notes_to_analyst``)
+            plus ``_source`` (file path), ``_matched_account_key``
+            (which account block was merged, if any), and
+            ``_has_file`` (whether a profile file was found at all).
+            Unknown YAML keys pass through verbatim.
+        """
+        try:
+            return _profile_mod.get_index().get(account_id)
+        except Exception:
+            logger.exception("get_account_profile failed account_id=%s", account_id)
+            raise
+
+    @mcp.tool()
+    def list_account_profiles() -> dict[str, Any]:
+        """List every account block configured in the profile YAML.
+
+        Use to discover which account aliases the user has set up,
+        or to confirm whether a profile file exists at all.
+
+        Returns:
+            ``{"source": str | None, "has_file": bool,
+              "defaults": {...}, "accounts": {alias: {...}, ...}}``.
+        """
+        try:
+            return _profile_mod.get_index().list_all()
+        except Exception:
+            logger.exception("list_account_profiles failed")
+            raise
+
+    @mcp.tool()
+    def reload_account_profiles() -> dict[str, Any]:
+        """Force the profile loader to re-read the YAML from disk.
+
+        Use after the user edits ``~/.traider/account-profiles.yaml``
+        during a session, to avoid restarting the server.
+        """
+        try:
+            index = _profile_mod.reload_index()
+        except Exception:
+            logger.exception("reload_account_profiles failed")
+            raise
+        return index.list_all()
+
     @mcp.tool()
     def validate_intent_rule_refs(intent_id: str | None = None) -> dict[str, Any]:
         """Verify that intent rule_refs resolve and detect drift.
@@ -681,7 +761,8 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         """Bundle of position context for one symbol.
 
         One-call replacement for the typical fan-out (positions +
-        intents + rules + drift checks) when evaluating a position.
+        intents + rules + drift checks + account framing) when
+        evaluating a position.
 
         Returns:
             ``{
@@ -690,16 +771,23 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
               "applicable_rules": [...],        # full bodies, deduplicated
               "rule_drift": {...},              # validate_refs output, per intent
               "sleeves": {sleeve_id: [...]},    # legs of any sleeve this symbol participates in
+              "account_profile": {
+                  "defaults": {...},            # always present (empty if no file)
+                  "by_account": {acct_id: {...}},  # one entry per unique account_id on the open intents
+                  "_has_file": bool,
+              },
             }``
         """
         store = _get_store()
         index = _rules_mod.get_index()
+        profile_index = _profile_mod.get_index()
         intents = store.list(symbol=symbol, status="open", limit=100)
 
         # Collect referenced rule names across intents.
         rule_names: list[str] = []
         rule_drift: dict[str, Any] = {}
         sleeve_ids: set[str] = set()
+        account_ids: set[str] = set()
         for rec in intents:
             for ref in rec.get("rule_refs") or []:
                 name = ref.get("rule")
@@ -708,6 +796,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             sid = rec.get("sleeve_id")
             if sid:
                 sleeve_ids.add(sid)
+            acct = rec.get("account_id")
+            if acct:
+                account_ids.add(acct)
             refs = rec.get("rule_refs") or []
             if refs:
                 rd = index.validate_refs(refs)
@@ -724,10 +815,21 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         for sid in sleeve_ids:
             sleeves[sid] = store.list_sleeve_legs(sid)
 
+        # Defaults always present; per-account merge for any account_id
+        # seen on the open intents (lets multi-account users see the
+        # right framing per intent).
+        by_account = {acct: profile_index.get(acct) for acct in sorted(account_ids)}
+        account_profile = {
+            "defaults": profile_index.get(None),
+            "by_account": by_account,
+            "_has_file": profile_index.has_file,
+        }
+
         return {
             "symbol": symbol.upper(),
             "intents": intents,
             "applicable_rules": applicable_rules,
             "rule_drift": rule_drift,
             "sleeves": sleeves,
+            "account_profile": account_profile,
         }

@@ -1,0 +1,96 @@
+# account-profiles.example.yaml
+# ============================================================================
+# Example account profile for traider. Copy or rename to one of:
+#
+#   ~/.traider/account-profiles.yaml          (default location)
+#   $TRAIDER_ACCOUNT_PROFILES                 (env-var override)
+#
+# Then edit it to describe yourself and each Schwab account you trade out
+# of. The file is read by the `intent` provider and surfaced through
+# these MCP tools:
+#
+#   get_account_profile(account_id=None)
+#   list_account_profiles()
+#   reload_account_profiles()        # after editing during a session
+#
+# ...and is automatically included in `get_position_context(symbol)`.
+#
+# Why bother? Without this file, every analyst session has to re-ask
+# clarifying questions like "is this account your only investable wealth
+# or one sleeve of several?" The answer changes whether a 25-35% T-bill
+# allocation looks defensible or wildly over-conservative for your age.
+# Captured here once, future sessions read it instead of asking.
+#
+# This file is purely local — nothing is uploaded or shared. The whole
+# traider system is read-only against external services; the only thing
+# this file affects is how the analyst frames your account.
+#
+# Missing or empty file is fine: the loader returns blank fields and the
+# analyst will ask you the framing questions it needs.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# defaults: applied to every account unless overridden in `accounts:` below.
+#
+# Every documented field is optional. Unknown keys pass through verbatim
+# (so you can add your own structured fields if you want).
+# ----------------------------------------------------------------------------
+defaults:
+  # Your age. Used to frame long-horizon vs near-term tradeoffs.
+  user_age: 37
+
+  # Free-text description of your broader wealth picture. Used so the
+  # analyst doesn't critique cash drag in a trading sleeve as if it
+  # were your whole net worth.
+  total_wealth_context: |
+    Schwab account is the active trading sleeve, not primary wealth.
+    Long-horizon equity exposure lives in a separate ~$200K 401k.
+    Also: house with decent equity, some crypto.
+
+  # Subjective. Free text — not enforced. Useful values: high, medium, low.
+  risk_capacity: high
+
+  # Anything you want the analyst to keep in mind across every account.
+  notes_to_analyst: |
+    Stable W-2 income; can replenish from cash flow rather than from
+    forced position trims. Don't push tax-loss harvesting in Q1-Q3 unless
+    a specific position has a structural break.
+
+# ----------------------------------------------------------------------------
+# accounts: per-account overrides + framing.
+#
+# Keys are user-chosen identifiers. You can use:
+#   - a friendly alias like "schwab-trading" (recommended — survives
+#     re-auth flows that may change Schwab hashValues)
+#   - the exact `hashValue` Schwab returns from get_accounts() (lets
+#     get_position_context auto-match by intent.account_id)
+#
+# Per-account fields override defaults. Omit a field to inherit from
+# defaults. Unknown keys pass through verbatim.
+# ----------------------------------------------------------------------------
+accounts:
+
+  # Example 1: a trading sleeve, keyed by friendly alias.
+  schwab-trading:
+    role: trading-sleeve
+    description: |
+      Active trading account. Concentrated single-name book (NVDA, IONQ,
+      MSTR LEAP) with active hedge sleeve (QQQ puts) and a 25-35% SGOV
+      dry-powder band sized for tactical deployment.
+    notes_to_analyst: |
+      Don't critique cash drag against a long-horizon framework — this
+      account's job is tactical deployment, and long-horizon equity
+      exposure lives in the 401k. The 25-35% dry-powder band is sized
+      for this account's role, not as a defensive posture.
+
+  # Example 2: a primary-wealth account. (Uncomment and edit if you
+  # add traider access to a non-trading account someday.)
+  #
+  # "ABCDEF1234567890":            # Schwab hashValue
+  #   role: primary-wealth
+  #   risk_capacity: medium
+  #   description: |
+  #     Long-horizon, taxable, low-turnover. Mostly index ETFs.
+  #   notes_to_analyst: |
+  #     Tax-aware: prefer LTCG, harvest losses in Q4 only. Not for
+  #     active swing trades.
