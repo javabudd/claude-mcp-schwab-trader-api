@@ -14,6 +14,11 @@ providers are never imported, so their third-party dependencies
 ``schwab`` and ``yahoo`` both provide the "market-data backend"
 surface and are mutually exclusive. Enabling both at once is a
 configuration error and the server refuses to start.
+
+The ``intent`` provider (local trade-intent journal + framework
+rules) is core analyst infrastructure and is **always loaded**,
+regardless of ``TRAIDER_PROVIDERS``. Listing it explicitly in the
+env var is harmless (deduped) but unnecessary.
 """
 from __future__ import annotations
 
@@ -47,6 +52,14 @@ PROVIDERS: dict[str, str] = {
 
 # Backends that expose the same market-data surface; pick one.
 MARKET_DATA_PROVIDERS: frozenset[str] = frozenset({"schwab", "yahoo"})
+
+# Providers loaded unconditionally on every startup. The intent
+# provider carries the local trade-intent journal and the framework
+# rules surface (list_rules / get_rule / get_position_context /
+# validate_intent_rule_refs) — it is core analyst infrastructure and
+# would be silently broken if someone forgot to list it in
+# TRAIDER_PROVIDERS.
+ALWAYS_LOADED_PROVIDERS: frozenset[str] = frozenset({"intent"})
 
 logger = logging.getLogger("traider")
 
@@ -94,10 +107,24 @@ def _configure_root_logging(log_file: Path) -> None:
 
 
 def load_providers(mcp: FastMCP, settings: TraiderSettings) -> None:
-    """Import each enabled provider's module and call ``register``."""
-    for name in settings.providers:
+    """Import each enabled provider's module and call ``register``.
+
+    Always-on providers (see ``ALWAYS_LOADED_PROVIDERS``) are loaded
+    in addition to whatever the user listed in ``TRAIDER_PROVIDERS``,
+    deduped so an explicit listing of an always-on provider is a
+    no-op rather than a double-register.
+    """
+    seen: set[str] = set()
+    for name in (*settings.providers, *ALWAYS_LOADED_PROVIDERS):
+        if name in seen:
+            continue
+        seen.add(name)
         module_path = PROVIDERS[name]
-        logger.info("loading provider=%s module=%s", name, module_path)
+        always_on = name in ALWAYS_LOADED_PROVIDERS and name not in settings.providers
+        logger.info(
+            "loading provider=%s module=%s%s",
+            name, module_path, " (always-on)" if always_on else "",
+        )
         module = importlib.import_module(module_path)
         register = getattr(module, "register", None)
         if register is None:
