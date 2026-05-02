@@ -280,12 +280,25 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     matching XML name. Docstring updated to spell out the new
     contract.
 
-- [ ] **#17 — fred analytics output mixes derived classifications
+- [x] **#17 — fred analytics output mixes derived classifications
   with raw fields.** `fred/tools.py:161-297` and `analytics.py`.
   AGENTS.md "distinguish tool output from your inference" applies on
   the model side, but provider responses also blend derived
   `regime`, `curve_shape`, `alignment` with upstream-shaped keys.
   Either nest under `derived: {...}` or stamp the keys.
+  - **Resolved:** all interpretive labels are now nested under a
+    `derived` key — top-level on `analyze_yield_curve` (`curve_shape`),
+    `analyze_credit_spreads` (`regime`), and `analyze_macro_regime`
+    (`regime`, `component_labels`); per-series on `analyze_breakevens`
+    (`alignment`, `deviation_from_target`) and
+    `analyze_financial_conditions` (`regime`). The
+    `analyze_macro_regime` internal lookups (`curve["curve_shape"]`,
+    `credit["regime"]`, `breakevens["series"][...]["alignment"]`,
+    `fin_cond["series"][...]["regime"]`) were moved to the new
+    `derived.*` paths in lockstep. Per-slope `inverted` booleans on
+    `analyze_yield_curve` slopes stay where they are — single sign
+    check, not a thresholded label. Tool docstrings and
+    `fred/README.md` field-path callouts updated to match.
 
 - [ ] **#18 — `auth.py` HTTP timeout 10s vs `schwab_client.py`
   30s.** `schwab/auth.py:70`. Slow-network users hit a confusing

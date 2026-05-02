@@ -132,6 +132,10 @@ a given dimension is in stress.
 Per AGENTS.md, derived classifications are model output, not primary
 data — quote them as such. Each response includes the raw component
 series alongside the derived label so the user can see the inputs.
+All interpretive labels (`regime`, `curve_shape`, `alignment`, etc.)
+are nested under a `derived` key — top-level on single-classifier
+tools, per-series on the multi-series ones — so callers can tell
+provider-side classifications apart from raw / statistical fields.
 
 #### `analyze_yield_curve(observation_start=None, zscore_window=504)`
 
@@ -140,7 +144,7 @@ Yield-curve regime snapshot from FRED H.15 (`DGS3MO`, `DGS2`,
 latest value + date, 1m / 3m / 6m / 1y deltas, rolling z-score and
 percentile vs the trailing `zscore_window` observations (default
 504 ≈ 2y of daily). Slopes carry an `inverted` boolean.
-Top-level `curve_shape` labels the setup `normal` / `flat` /
+`derived.curve_shape` labels the setup `normal` / `flat` /
 `partially_inverted` / `inverted`.
 
 #### `analyze_credit_spreads(observation_start=None, zscore_window=504)`
@@ -148,7 +152,7 @@ Top-level `curve_shape` labels the setup `normal` / `flat` /
 US corporate credit spreads — ICE BofA option-adjusted spread
 indices `BAMLH0A0HYM2` (US High Yield) and `BAMLC0A0CM` (US
 Corporate / IG). Per series: latest, 1m/3m/6m/1y deltas, z-score /
-percentile vs `zscore_window`. Top-level `regime` is derived from
+percentile vs `zscore_window`. `derived.regime` is derived from
 the worse of the two z-scores (z<-1 `tight`, -1..1 `normal`, 1..2
 `wide`, ≥2 `stressed`) — the provider deliberately over-flags
 stress rather than under-flag it.
@@ -157,9 +161,9 @@ stress rather than under-flag it.
 
 Market-implied inflation expectations vs the Fed's 2% target.
 Pulls `T5YIE`, `T10YIE`, `T5YIFR` and returns per tenor: latest,
-1m/3m/6m/1y deltas, z-score, an `alignment` label
-(`below_target` / `near_target` / `above_target`) and
-`deviation_from_target` in percentage points. Note: the Fed's 2%
+1m/3m/6m/1y deltas, z-score, plus a per-tenor `derived` block with
+an `alignment` label (`below_target` / `near_target` /
+`above_target`) and `deviation_from_target` in percentage points. Note: the Fed's 2%
 target is for PCE inflation, not breakevens — breakevens carry an
 inflation risk premium typically 20-50bp above expected inflation,
 which `target_band` absorbs.
@@ -170,16 +174,16 @@ Chicago Fed financial-conditions indices: NFCI (raw read of
 financial tightness vs the 1971-present average) and ANFCI
 (cycle-adjusted — positive ANFCI flags stress beyond what the
 cycle would justify). Per series: latest, deltas, z-score, and a
-`regime` label (`loose` / `normal` / `tight` / `stressed`). Both
-series are weekly, released Wednesdays.
+per-series `derived.regime` label (`loose` / `normal` / `tight` /
+`stressed`). Both series are weekly, released Wednesdays.
 
 #### `analyze_macro_regime(observation_start=None, zscore_window=504, breakeven_target=2.0, breakeven_band=0.25)`
 
 One-call synthesis. Internally runs `analyze_yield_curve`,
 `analyze_credit_spreads`, `analyze_breakevens`, and
 `analyze_financial_conditions`, then rolls the components into a
-single `regime` label (`risk_on` / `neutral` / `risk_off` /
-`stressed`). The aggregate uses **NFCI** (absolute financial
+single `derived.regime` label (`risk_on` / `neutral` / `risk_off`
+/ `stressed`). The aggregate uses **NFCI** (absolute financial
 tightness) for the risk-on/off read; ANFCI is surfaced as a
 secondary component.
 
@@ -224,9 +228,9 @@ secondary component.
 - **"Give me a one-call macro regime read."** —
   `analyze_macro_regime()` and weigh the component z-scores.
 - **"Is the curve still inverted?"** — `analyze_yield_curve()`,
-  read `curve_shape` and the per-slope `inverted` flags.
+  read `derived.curve_shape` and the per-slope `inverted` flags.
 - **"Are credit spreads stressed?"** — `analyze_credit_spreads()`,
-  check the top-level `regime` and the per-index z-scores.
+  check `derived.regime` and the per-index z-scores.
 
 Pair these with `schwab` / `yahoo` provider prompts to condition
 equity decisions on the macro calendar — e.g. *"run

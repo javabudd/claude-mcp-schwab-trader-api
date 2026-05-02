@@ -201,11 +201,11 @@ def _yield_curve_payload(
     shape = analytics.curve_shape(latest_2s10s, latest_3m10y)
     return {
         "as_of": _latest_as_of(fetched),
-        "curve_shape": shape,
         "levels": levels,
         "slopes": slopes,
         "series_ids": series_ids,
         "zscore_window": zscore_window,
+        "derived": {"curve_shape": shape},
         "units_note": "Yields are in percent; slopes in percentage points.",
     }
 
@@ -228,10 +228,10 @@ def _credit_spreads_payload(
     ig_z = (summaries["ig_oas"].get("zscore") or {}).get("z_score")
     return {
         "as_of": _latest_as_of(fetched),
-        "regime": analytics.credit_regime(hy_z, ig_z),
         "series": summaries,
         "series_ids": series_ids,
         "zscore_window": zscore_window,
+        "derived": {"regime": analytics.credit_regime(hy_z, ig_z)},
         "units_note": "OAS values are in percent (decimal percent, not bps).",
     }
 
@@ -252,12 +252,14 @@ def _breakevens_payload(
     for label, s in fetched.items():
         summary = analytics.summarize_series(s, zscore_window)
         latest = (summary.get("latest") or {}).get("value")
-        summary["alignment"] = analytics.breakeven_alignment(
-            latest, target=target, band=target_band,
-        )
-        summary["deviation_from_target"] = (
-            latest - target if latest is not None else None
-        )
+        summary["derived"] = {
+            "alignment": analytics.breakeven_alignment(
+                latest, target=target, band=target_band,
+            ),
+            "deviation_from_target": (
+                latest - target if latest is not None else None
+            ),
+        }
         summaries[label] = summary
     return {
         "as_of": _latest_as_of(fetched),
@@ -288,7 +290,7 @@ def _financial_conditions_payload(
     for label, s in fetched.items():
         summary = analytics.summarize_series(s, zscore_window)
         latest = (summary.get("latest") or {}).get("value")
-        summary["regime"] = analytics.nfci_regime(latest)
+        summary["derived"] = {"regime": analytics.nfci_regime(latest)}
         summaries[label] = summary
     return {
         "as_of": _latest_as_of(fetched),
@@ -721,8 +723,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
           ``zscore_window`` observations (default 504 ≈ 2y of daily),
         - for slopes: an ``inverted`` boolean (current value < 0).
 
-        ``curve_shape`` at the top level labels the current setup as
-        ``normal`` / ``flat`` / ``partially_inverted`` / ``inverted``.
+        ``derived.curve_shape`` labels the current setup as ``normal``
+        / ``flat`` / ``partially_inverted`` / ``inverted``. All
+        interpretive labels are nested under ``derived`` so callers can
+        tell provider-side classifications apart from raw / statistical
+        fields.
 
         Args:
             observation_start: ISO date. Defaults to ~3 years back —
@@ -762,10 +767,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         returns per-series latest, 1m/3m/6m/1y deltas, and z-score /
         percentile vs the trailing ``zscore_window`` observations.
 
-        The top-level ``regime`` label is derived from the worse of
-        the two z-scores (z < -1 = ``tight``, -1..1 = ``normal``,
-        1..2 = ``wide``, >= 2 = ``stressed``) — we'd rather over-flag
-        credit stress than under-flag it.
+        ``derived.regime`` is derived from the worse of the two
+        z-scores (z < -1 = ``tight``, -1..1 = ``normal``, 1..2 =
+        ``wide``, >= 2 = ``stressed``) — we'd rather over-flag credit
+        stress than under-flag it. Nested under ``derived`` so callers
+        can tell the interpretive label apart from the raw / statistical
+        fields.
 
         Args:
             observation_start: ISO date. Defaults to ~3 years back.
@@ -802,10 +809,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         Pulls ``T5YIE`` (5y breakeven), ``T10YIE`` (10y), and
         ``T5YIFR`` (5y5y forward) and returns, per tenor: latest,
-        1m/3m/6m/1y deltas, z-score vs ``zscore_window``, an
-        ``alignment`` label (``below_target`` / ``near_target`` /
-        ``above_target``) and ``deviation_from_target`` in percentage
-        points.
+        1m/3m/6m/1y deltas, z-score vs ``zscore_window``, plus a
+        per-tenor ``derived`` block with an ``alignment`` label
+        (``below_target`` / ``near_target`` / ``above_target``) and
+        ``deviation_from_target`` in percentage points. Interpretive
+        labels are nested under ``derived`` so callers can tell them
+        apart from the raw / statistical fields.
 
         Note: the Fed's 2% target is for PCE inflation, not breakevens.
         Breakevens include an inflation risk premium and typically run
@@ -849,8 +858,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         Pulls both the National Financial Conditions Index (``NFCI``)
         and the Adjusted NFCI (``ANFCI``) and returns per-series
         summary (latest, 1m/3m/6m/1y deltas, z-score vs
-        ``zscore_window``) with a ``regime`` label (``loose`` /
-        ``normal`` / ``tight`` / ``stressed``).
+        ``zscore_window``) plus a per-series ``derived.regime`` label
+        (``loose`` / ``normal`` / ``tight`` / ``stressed``).
+        Interpretive labels are nested under ``derived`` so callers
+        can tell them apart from the raw / statistical fields.
 
         **What each tells you:**
 
@@ -908,8 +919,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         Internally runs :func:`analyze_yield_curve`,
         :func:`analyze_credit_spreads`, :func:`analyze_breakevens`, and
         :func:`analyze_financial_conditions` (NFCI + ANFCI), then rolls
-        the components into a single ``regime`` label (``risk_on`` /
-        ``neutral`` / ``risk_off`` / ``stressed``).
+        the components into a single ``derived.regime`` label
+        (``risk_on`` / ``neutral`` / ``risk_off`` / ``stressed``).
+        Interpretive labels are nested under ``derived`` (top-level and
+        per-component) so callers can tell them apart from the raw /
+        statistical fields.
 
         The aggregate uses **NFCI** (absolute financial tightness), not
         ANFCI (cycle-adjusted), because NFCI's sign carries the "are
@@ -921,10 +935,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         to ``stressed``. Otherwise components accrue ±1/±2 to a score
         that buckets into the other labels. This is deliberately
         coarse — read the per-component labels
-        (``curve.curve_shape``, ``credit.regime``,
-        ``breakevens.series[*].alignment``,
-        ``financial_conditions.series.{nfci,anfci}.regime``) for the
-        real signal.
+        (``curve.derived.curve_shape``, ``credit.derived.regime``,
+        ``breakevens.series[*].derived.alignment``,
+        ``financial_conditions.series.{nfci,anfci}.derived.regime``)
+        for the real signal.
 
         Args:
             observation_start: ISO date. Defaults to ~3 years back.
@@ -955,13 +969,20 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             logger.exception("analyze_macro_regime failed")
             raise
 
-        nfci_label = (fin_cond["series"]["nfci"].get("regime") or "unknown")
-        anfci_label = (fin_cond["series"]["anfci"].get("regime") or "unknown")
+        nfci_label = (
+            (fin_cond["series"]["nfci"].get("derived") or {}).get("regime") or "unknown"
+        )
+        anfci_label = (
+            (fin_cond["series"]["anfci"].get("derived") or {}).get("regime") or "unknown"
+        )
         component_labels = {
-            "curve": curve["curve_shape"],
-            "credit": credit["regime"],
+            "curve": curve["derived"]["curve_shape"],
+            "credit": credit["derived"]["regime"],
             "breakevens_10y": (
-                (breakevens["series"].get("10y") or {}).get("alignment") or "unknown"
+                ((breakevens["series"].get("10y") or {}).get("derived") or {}).get(
+                    "alignment"
+                )
+                or "unknown"
             ),
             "nfci": nfci_label,
             "anfci": anfci_label,
@@ -985,12 +1006,14 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "source": _src("/series/observations"),
             "fetched_at": _now_iso(),
             "as_of": as_of,
-            "regime": regime,
-            "component_labels": component_labels,
             "curve": curve,
             "credit": credit,
             "breakevens": breakevens,
             "financial_conditions": fin_cond,
+            "derived": {
+                "regime": regime,
+                "component_labels": component_labels,
+            },
             "note": (
                 "Aggregate label uses NFCI (absolute tightness) not "
                 "ANFCI (cycle-adjusted) — ANFCI is surfaced as a "
