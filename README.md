@@ -21,83 +21,6 @@ loaded into your AI CLI's context. Internals for modifying the code
 (how providers load, how to add a provider) live in
 [DEVELOPING.md](DEVELOPING.md) and are intentionally not auto-loaded.
 
-## Available providers
-
-One env var, `TRAIDER_PROVIDERS`, controls the data-provider tool
-surface. The `intent` provider — local trade-intent journal,
-framework rules, and account profile — is **always loaded** as core
-analyst infrastructure and is *not* toggled by this env var (listing
-it explicitly is harmless but unnecessary).
-
-Out of the box, traider ships with the no-credentials data set
-enabled — useful market data, macro, factors, Treasury, and CFTC
-positioning without any signups:
-
-```
-TRAIDER_PROVIDERS=yahoo,fed-calendar,factor,treasury,cftc
-```
-
-Add API-key providers (`fred`, `sec-edgar`, `news`, `earnings`,
-`estimates`, `eia`) as you obtain credentials, or swap `yahoo` for
-`schwab` if you want real brokerage data and Schwab's market-data
-entitlement.
-
-| Provider       | Tool group                        | Creds required                  |
-|----------------|-----------------------------------|---------------------------------|
-| `schwab`       | Schwab market data + accounts + trade history | Schwab app key/secret + OAuth |
-| `yahoo`        | Yahoo Finance market data         | None                            |
-| `fred`         | FRED macro / release calendar     | `FRED_API_KEY` (free)           |
-| `fed-calendar` | FOMC meeting calendar             | None                            |
-| `sec-edgar`    | SEC filings, insiders, 13F, XBRL  | `SEC_EDGAR_USER_AGENT` (yours)  |
-| `factor`       | Ken French factors + industries   | None                            |
-| `treasury`     | Treasury auctions, DTS, debt      | None                            |
-| `news`         | Massive news + sentiment          | `MASSIVE_API_KEY` (free tier)   |
-| `earnings`     | Finnhub earnings calendar + surprises | `FINNHUB_API_KEY` (free tier) |
-| `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
-| `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
-| `cftc`         | CFTC Commitments of Traders (weekly positioning) | None (optional `CFTC_APP_TOKEN`) |
-
-Plus, always loaded regardless of `TRAIDER_PROVIDERS`:
-
-| Provider | Tool group | Creds required |
-|----------|------------|----------------|
-| `intent` | Local trade-intent journal + framework rules + account profile (why each share/contract exists, what discipline governs it, what role the account plays in your total wealth) | None (local SQLite, optional `TRAIDER_INTENT_DB`, `TRAIDER_ACCOUNT_PROFILES`) |
-
-Rules:
-
-- **Pick at most one market-data backend** (`schwab` *or* `yahoo`).
-  They expose the same tool names and are mutually exclusive; enabling
-  both at once is a startup error.
-- **Add any mix of the other providers.** They expose distinct tool
-  names, so they compose freely with each other and with whichever
-  market-data backend you chose.
-
-If `TRAIDER_PROVIDERS` is empty, only the always-on `intent` provider
-is registered — useful for smoke-testing the transport or for working
-purely against the local intent journal, but you'll get no live
-market data.
-
-### Choosing a market-data backend
-
-`schwab` and `yahoo` expose the **same tool names** (`get_quote`,
-`get_price_history`, `run_technical_analysis`, `analyze_*`, …) so
-prompts are portable. `yahoo` is the default because it works with
-no signup; `schwab` is the upgrade path for real brokerage data and
-real-time market-data entitlement. They differ only in where the
-data comes from and what's not available:
-
-|                              | `schwab`                                    | `yahoo`                                      |
-|------------------------------|---------------------------------------------|----------------------------------------------|
-| Account needed               | Schwab developer account (app approval)     | None                                         |
-| Auth flow                    | One-time OAuth (browser)                    | None                                         |
-| Brokerage (`get_accounts`)   | ✅ real positions, cost basis, P&L          | ❌ raises — no brokerage                      |
-| Market hours (`get_market_hours`) | ✅ authoritative, holiday-aware        | ❌ raises — Yahoo has no such endpoint        |
-| Movers                       | per-index (`$SPX`, `$DJI`, …)               | US-market-wide Yahoo screeners               |
-| Option chains                | ✅ Greeks, strategy previews, real-time     | ⚠️ delayed ~15min, no Greeks, `SINGLE` only  |
-| Intraday history depth       | Long (years of minute bars)                 | Short (~7d for 1m, ~60d for sub-hourly)      |
-| Data freshness               | Real-time during RTH (Schwab entitlement)   | Typically delayed ~15 min                    |
-| Unofficial endpoint?         | No — stable, paid, documented API           | Yes — `yfinance` scrapes; expect drift       |
-
 ## Quickstart
 
 1. **[Configure credentials](#1-configure-credentials)** in `.env`.
@@ -142,7 +65,7 @@ FRED_API_KEY=...
 SEC_EDGAR_USER_AGENT=your-name you@example.com
 ```
 
-See [Available providers](#available-providers) above for the full
+See [Available providers](#available-providers) below for the full
 list and the env var each one needs. Never commit `.env` or paste
 its contents into logs or chat.
 
@@ -261,6 +184,83 @@ Stdio variant: `"type": "local", "command": ["traider", "--transport", "stdio"]`
 Stdio variant: `"command": "traider", "args": ["--transport", "stdio"]`.
 Gemini CLI does not auto-load `.env` — export vars in your shell or
 list them under `"env"` in the server entry.
+
+## Available providers
+
+One env var, `TRAIDER_PROVIDERS`, controls the data-provider tool
+surface. The `intent` provider — local trade-intent journal,
+framework rules, and account profile — is **always loaded** as core
+analyst infrastructure and is *not* toggled by this env var (listing
+it explicitly is harmless but unnecessary).
+
+Out of the box, traider ships with the no-credentials data set
+enabled — useful market data, macro, factors, Treasury, and CFTC
+positioning without any signups:
+
+```
+TRAIDER_PROVIDERS=yahoo,fed-calendar,factor,treasury,cftc
+```
+
+Add API-key providers (`fred`, `sec-edgar`, `news`, `earnings`,
+`estimates`, `eia`) as you obtain credentials, or swap `yahoo` for
+`schwab` if you want real brokerage data and Schwab's market-data
+entitlement.
+
+| Provider       | Tool group                        | Creds required                  |
+|----------------|-----------------------------------|---------------------------------|
+| `schwab`       | Schwab market data + accounts + trade history | Schwab app key/secret + OAuth |
+| `yahoo`        | Yahoo Finance market data         | None                            |
+| `fred`         | FRED macro / release calendar     | `FRED_API_KEY` (free)           |
+| `fed-calendar` | FOMC meeting calendar             | None                            |
+| `sec-edgar`    | SEC filings, insiders, 13F, XBRL  | `SEC_EDGAR_USER_AGENT` (yours)  |
+| `factor`       | Ken French factors + industries   | None                            |
+| `treasury`     | Treasury auctions, DTS, debt      | None                            |
+| `news`         | Massive news + sentiment          | `MASSIVE_API_KEY` (free tier)   |
+| `earnings`     | Finnhub earnings calendar + surprises | `FINNHUB_API_KEY` (free tier) |
+| `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
+| `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
+| `cftc`         | CFTC Commitments of Traders (weekly positioning) | None (optional `CFTC_APP_TOKEN`) |
+
+Plus, always loaded regardless of `TRAIDER_PROVIDERS`:
+
+| Provider | Tool group | Creds required |
+|----------|------------|----------------|
+| `intent` | Local trade-intent journal + framework rules + account profile (why each share/contract exists, what discipline governs it, what role the account plays in your total wealth) | None (local SQLite, optional `TRAIDER_INTENT_DB`, `TRAIDER_ACCOUNT_PROFILES`) |
+
+Rules:
+
+- **Pick at most one market-data backend** (`schwab` *or* `yahoo`).
+  They expose the same tool names and are mutually exclusive; enabling
+  both at once is a startup error.
+- **Add any mix of the other providers.** They expose distinct tool
+  names, so they compose freely with each other and with whichever
+  market-data backend you chose.
+
+If `TRAIDER_PROVIDERS` is empty, only the always-on `intent` provider
+is registered — useful for smoke-testing the transport or for working
+purely against the local intent journal, but you'll get no live
+market data.
+
+### Choosing a market-data backend
+
+`schwab` and `yahoo` expose the **same tool names** (`get_quote`,
+`get_price_history`, `run_technical_analysis`, `analyze_*`, …) so
+prompts are portable. `yahoo` is the default because it works with
+no signup; `schwab` is the upgrade path for real brokerage data and
+real-time market-data entitlement. They differ only in where the
+data comes from and what's not available:
+
+|                              | `schwab`                                    | `yahoo`                                      |
+|------------------------------|---------------------------------------------|----------------------------------------------|
+| Account needed               | Schwab developer account (app approval)     | None                                         |
+| Auth flow                    | One-time OAuth (browser)                    | None                                         |
+| Brokerage (`get_accounts`)   | ✅ real positions, cost basis, P&L          | ❌ raises — no brokerage                      |
+| Market hours (`get_market_hours`) | ✅ authoritative, holiday-aware        | ❌ raises — Yahoo has no such endpoint        |
+| Movers                       | per-index (`$SPX`, `$DJI`, …)               | US-market-wide Yahoo screeners               |
+| Option chains                | ✅ Greeks, strategy previews, real-time     | ⚠️ delayed ~15min, no Greeks, `SINGLE` only  |
+| Intraday history depth       | Long (years of minute bars)                 | Short (~7d for 1m, ~60d for sub-hourly)      |
+| Data freshness               | Real-time during RTH (Schwab entitlement)   | Typically delayed ~15 min                    |
+| Unofficial endpoint?         | No — stable, paid, documented API           | Yes — `yfinance` scrapes; expect drift       |
 
 ## Example questions
 
