@@ -309,12 +309,35 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     no longer see a tighter timeout than every subsequent token-refresh
     or API call would tolerate.
 
-- [ ] **#19 — Treasury monetary fields are strings — not enforced
+- [x] **#19 — Treasury monetary fields are strings — not enforced
   anywhere.** DEVELOPING.md is explicit, `treasury_client.py`
   doesn't cast, but the tool-layer doesn't assert it either. If a
   future refactor adds `float(...)` to "tidy up" the response, the
   precision-preservation guarantee is silently lost. A guard or a
   comment at the boundary would help.
+  - **Resolved:** `treasury_client.py` now defines
+    `_assert_decimal_strings` and calls it from `_get` after the
+    JSON parse, so every Fiscal Data response funnels through the
+    tripwire. The guard spot-checks the first row in
+    `payload["data"]` and raises `TreasuryError` if any
+    precision-preserving field has come back as something other
+    than `str` / `None`. Coverage is the union of two rules:
+    suffix match on `_amt` / `_bal` (catches every dollar amount
+    and TGA balance across auctions, DTS, and debt-to-the-penny —
+    including future tables), plus an explicit allow-list for the
+    auctions_query fields that don't follow the suffix convention
+    (`bid_to_cover_ratio`, `high_yield`, `high_investment_rate`,
+    `high_discnt_rate`, `high_price`, `allocation_pctage`,
+    `total_accepted` / `_tendered`, the four `*_dealer_*` and
+    `*_bidder_*` amounts). Empty `data`, missing `data`, and
+    non-dict rows skip gracefully — the guard only fires on a
+    real violation. The error message names the field, the
+    observed type, the value, and points at DEVELOPING.md
+    treasury § "Amounts are strings" so a maintainer hitting it
+    in CI / runtime knows exactly what contract they tripped.
+    Catches both the "future `float(...)` tidy-up refactor" the
+    QA item flagged and an upstream Fiscal Data schema flip from
+    string to number.
 
 - [ ] **#20 — `server.py` startup order.** `_validate_providers`
   (line 131) runs *after* `_configure_root_logging` (120) and after

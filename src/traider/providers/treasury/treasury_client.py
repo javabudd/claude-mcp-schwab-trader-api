@@ -58,6 +58,75 @@ class TreasuryError(RuntimeError):
     """Raised when the Fiscal Data API returns a non-2xx response."""
 
 
+# Fields Fiscal Data returns as decimal strings to preserve precision —
+# large public-debt totals (``tot_pub_debt_out_amt``) routinely exceed
+# float64's 15-significant-digit safe range, and rates / ratios are
+# published to more places than float-formatting round-trips cleanly.
+# DEVELOPING.md treasury § "Amounts are strings" is the canonical
+# statement of this contract; ``_assert_decimal_strings`` below is the
+# tripwire that enforces it on every response.
+#
+# Any field name in this set OR ending with one of these suffixes must
+# come back as ``str`` (or ``None``). If a future refactor adds
+# ``float(...)`` somewhere "to tidy up" the response, the guard fires
+# instead of letting the precision loss go silent.
+_DECIMAL_STRING_SUFFIXES: tuple[str, ...] = ("_amt", "_bal")
+_DECIMAL_STRING_FIELDS: frozenset[str] = frozenset({
+    # auctions_query — dollar amounts without `_amt` suffix
+    "total_accepted",
+    "total_tendered",
+    "primary_dealer_tendered",
+    "primary_dealer_accepted",
+    "direct_bidder_tendered",
+    "direct_bidder_accepted",
+    "indirect_bidder_tendered",
+    "indirect_bidder_accepted",
+    # auctions_query — rates / ratios published as decimal strings
+    "bid_to_cover_ratio",
+    "high_yield",
+    "high_investment_rate",
+    "high_discnt_rate",
+    "high_price",
+    "allocation_pctage",
+})
+
+
+def _assert_decimal_strings(payload: dict[str, Any], path: str) -> None:
+    """Tripwire: refuse to silently downgrade Fiscal Data's
+    precision-preserved decimal-string fields to a numeric type.
+
+    Spot-checks the first row in ``payload["data"]`` — column types
+    are consistent across rows in any tabular API, so one row is
+    enough to catch a refactor that adds ``float(...)`` mid-pipeline
+    or a Fiscal Data schema flip from string to number. Skips
+    gracefully when the response has no ``data`` array, no rows, or
+    a row that isn't a dict — those shapes can't violate the
+    contract anyway.
+    """
+    rows = payload.get("data")
+    if not isinstance(rows, list) or not rows:
+        return
+    first = rows[0]
+    if not isinstance(first, dict):
+        return
+    for name, value in first.items():
+        if value is None:
+            continue
+        if name not in _DECIMAL_STRING_FIELDS and not name.endswith(
+            _DECIMAL_STRING_SUFFIXES
+        ):
+            continue
+        if not isinstance(value, str):
+            raise TreasuryError(
+                f"Fiscal Data {path}: precision-preserving field "
+                f"{name!r} returned as {type(value).__name__} "
+                f"(value={value!r}) instead of decimal string. "
+                f"DEVELOPING.md treasury § 'Amounts are strings' "
+                f"requires these fields stay as str — refusing to "
+                f"silently degrade precision."
+            )
+
+
 class TreasuryClient:
     """Fiscal Data REST client.
 
@@ -101,7 +170,9 @@ class TreasuryClient:
             raise TreasuryError(
                 f"Fiscal Data {resp.status_code} on {path}: {body}"
             )
-        return resp.json()
+        payload = resp.json()
+        _assert_decimal_strings(payload, path)
+        return payload
 
     def query(
         self,
