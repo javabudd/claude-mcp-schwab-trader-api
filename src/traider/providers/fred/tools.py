@@ -236,6 +236,136 @@ def _credit_spreads_payload(
     }
 
 
+# Ordered highest-to-lowest quality so the diagnostic's "lowest-quality
+# bucket holds the max z" check (low_end_stress) is well-defined.
+_IG_RATING_SERIES: dict[str, str] = {
+    "AAA": "BAMLC0A1CAAA",
+    "AA":  "BAMLC0A2CAA",
+    "A":   "BAMLC0A3CA",
+    "BBB": "BAMLC0A4CBBB",
+}
+_HY_RATING_SERIES: dict[str, str] = {
+    "BB":  "BAMLH0A1HYBB",
+    "B":   "BAMLH0A2HYB",
+    "CCC": "BAMLH0A3HYC",
+}
+
+# IG corporate OAS by maturity bucket. ICE BofA does not publish HY
+# term-bucket OAS on FRED — see the tool docstring.
+_IG_TERM_SERIES: dict[str, str] = {
+    "1_3y":   "BAMLC1A0C13Y",
+    "3_5y":   "BAMLC2A0C35Y",
+    "5_7y":   "BAMLC3A0C57Y",
+    "7_10y":  "BAMLC4A0C710Y",
+    "10_15y": "BAMLC7A0C1015Y",
+    "15p_y":  "BAMLC8A0C15PY",
+}
+
+
+def _summarize_basket(
+    client: FredClient,
+    series_ids: dict[str, str],
+    observation_start: str,
+    zscore_window: int,
+) -> tuple[dict[str, list[tuple[str, float]]], dict[str, Any]]:
+    fetched = {
+        label: _fetch_series(client, sid, observation_start)
+        for label, sid in series_ids.items()
+    }
+    summaries = {
+        label: analytics.summarize_series(s, zscore_window)
+        for label, s in fetched.items()
+    }
+    return fetched, summaries
+
+
+def _quality_curve_segment(
+    client: FredClient,
+    series_ids: dict[str, str],
+    observation_start: str,
+    zscore_window: int,
+) -> dict[str, Any]:
+    fetched, summaries = _summarize_basket(
+        client, series_ids, observation_start, zscore_window,
+    )
+    z_by_rating = [
+        (summaries[label].get("zscore") or {}).get("z_score")
+        for label in series_ids
+    ]
+    latest_by_rating = [
+        (summaries[label].get("latest") or {}).get("value")
+        for label in series_ids
+    ]
+    return {
+        "as_of": _latest_as_of(fetched),
+        "series": summaries,
+        "series_ids": series_ids,
+        "derived": analytics.quality_curve_diagnostic(z_by_rating, latest_by_rating),
+    }
+
+
+def _credit_quality_curve_payload(
+    client: FredClient,
+    observation_start: str,
+    zscore_window: int,
+    segment: str,
+) -> dict[str, Any]:
+    segments: dict[str, Any] = {}
+    if segment in ("ig", "both"):
+        segments["ig"] = _quality_curve_segment(
+            client, _IG_RATING_SERIES, observation_start, zscore_window,
+        )
+    if segment in ("hy", "both"):
+        segments["hy"] = _quality_curve_segment(
+            client, _HY_RATING_SERIES, observation_start, zscore_window,
+        )
+    as_ofs = [v.get("as_of") for v in segments.values() if v.get("as_of")]
+    return {
+        "as_of": max(as_ofs) if as_ofs else None,
+        "segment": segment,
+        "segments": segments,
+        "zscore_window": zscore_window,
+        "units_note": (
+            "OAS values are in percent (decimal percent, not bps). "
+            "Per-segment derived.regime: 'compressed' (all z<-0.5; "
+            "late-cycle reach for yield), 'broad_widening' (all z>1 "
+            "with low dispersion; uniform stress), 'low_end_stress' "
+            "(z dispersion >=1.0 with the worst-rated bucket on top; "
+            "classic flight to quality), 'mixed' otherwise."
+        ),
+    }
+
+
+def _credit_term_structure_payload(
+    client: FredClient,
+    observation_start: str,
+    zscore_window: int,
+) -> dict[str, Any]:
+    fetched, summaries = _summarize_basket(
+        client, _IG_TERM_SERIES, observation_start, zscore_window,
+    )
+
+    def _latest(label: str) -> float | None:
+        return (summaries[label].get("latest") or {}).get("value")
+
+    return {
+        "as_of": _latest_as_of(fetched),
+        "series": summaries,
+        "series_ids": _IG_TERM_SERIES,
+        "zscore_window": zscore_window,
+        "derived": {
+            "front_to_belly": analytics.credit_term_slope(_latest("1_3y"), _latest("7_10y")),
+            "full_curve": analytics.credit_term_slope(_latest("1_3y"), _latest("15p_y")),
+        },
+        "units_note": (
+            "OAS values in percent (decimal percent, not bps); slopes "
+            "in percentage points (long minus short). For IG the OAS "
+            "term structure is almost always upward-sloping — an "
+            "'inverted' label is rare and flags acute short-end stress."
+        ),
+    }
+
+
 def _breakevens_payload(
     client: FredClient,
     observation_start: str,
@@ -791,6 +921,129 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             )
         except Exception:
             logger.exception("analyze_credit_spreads failed")
+            raise
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
+
+    @mcp.tool()
+    def analyze_credit_quality_curve(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+        segment: str = "both",
+    ) -> dict[str, Any]:
+        """US corporate OAS by credit rating — IG, HY, or both.
+
+        Pulls ICE BofA option-adjusted spread sub-indices keyed by
+        rating: ``AAA / AA / A / BBB`` for investment grade
+        (``BAMLC0A1CAAA``…``BAMLC0A4CBBB``) and ``BB / B / CCC`` for
+        high yield (``BAMLH0A1HYBB`` / ``BAMLH0A2HYB`` /
+        ``BAMLH0A3HYC``). Per rating: latest value + date,
+        1m / 3m / 6m / 1y deltas, and rolling z-score / percentile
+        vs the trailing ``zscore_window`` observations.
+
+        The point of this tool over :func:`analyze_credit_spreads` is
+        to show whether stress (or compression) is broad-based or
+        concentrated at the low end of the quality stack — the
+        headline IG / HY aggregates can hide that distinction. CCC
+        blowing out while BB stays calm is a classic late-cycle
+        quality-flight signal that the headline HY OAS softens.
+
+        Per segment ``derived`` carries:
+
+        - ``regime``: ``compressed`` (all z<-0.5; reach-for-yield),
+          ``broad_widening`` (all z>1 with tight dispersion;
+          uniform stress), ``low_end_stress`` (dispersion ≥1.0 with
+          the worst-rated bucket on top), ``mixed`` otherwise.
+        - ``zscore_dispersion``: range across rating-bucket z-scores
+          in z-units. High = stress concentrated; low = uniform.
+        - ``low_end_premium_pp``: lowest-quality OAS minus
+          highest-quality OAS in percentage points — the absolute
+          cost of credit risk at the bottom of the segment.
+
+        Interpretive labels are nested under ``derived`` so callers
+        can tell them apart from raw / statistical fields.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back.
+            zscore_window: Observations in the z-score baseline.
+            segment: ``ig`` / ``hy`` / ``both``.
+        """
+        if segment not in ("ig", "hy", "both"):
+            raise ValueError(
+                f"unknown segment={segment!r}; valid: 'ig', 'hy', 'both'"
+            )
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_credit_quality_curve segment=%s observation_start=%s zscore_window=%d",
+            segment, observation_start, zscore_window,
+        )
+        fetched_at = _now_iso()
+        try:
+            payload = _credit_quality_curve_payload(
+                _get_client(), observation_start, zscore_window, segment,
+            )
+        except Exception:
+            logger.exception("analyze_credit_quality_curve failed")
+            raise
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
+
+    @mcp.tool()
+    def analyze_credit_term_structure(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+    ) -> dict[str, Any]:
+        """IG corporate OAS by maturity bucket (1-3y … 15+y).
+
+        Pulls ICE BofA option-adjusted spread term-bucket sub-indices:
+        ``BAMLC1A0C13Y`` (1-3y), ``BAMLC2A0C35Y`` (3-5y),
+        ``BAMLC3A0C57Y`` (5-7y), ``BAMLC4A0C710Y`` (7-10y),
+        ``BAMLC7A0C1015Y`` (10-15y), ``BAMLC8A0C15PY`` (15+y). Per
+        bucket: latest value + date, 1m / 3m / 6m / 1y deltas, and
+        rolling z-score / percentile vs ``zscore_window`` observations.
+
+        For IG the OAS term structure is almost always upward-sloping —
+        longer-duration bonds carry more credit risk. An ``inverted``
+        slope (front-end OAS > long-end OAS) is rare and signal-rich,
+        flagging acute short-end stress (think 2008-Q4, March 2020).
+
+        ``derived`` carries two slope reads:
+
+        - ``front_to_belly``: slope from 1-3y to 7-10y in pp + label.
+        - ``full_curve``: slope from 1-3y to 15+y in pp + label.
+
+        Slope labels: ``inverted`` (long < short), ``flat`` (slope
+        < 0.25 pp), ``normal`` otherwise. Interpretive labels are
+        nested under ``derived``.
+
+        **HY term-bucket OAS** is not published by ICE BofA on FRED.
+        For HY by maturity you'd need a paid index-holdings feed
+        (S&P Global / IHS Markit) — out of scope here.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back.
+            zscore_window: Observations in the z-score baseline.
+        """
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_credit_term_structure observation_start=%s zscore_window=%d",
+            observation_start, zscore_window,
+        )
+        fetched_at = _now_iso()
+        try:
+            payload = _credit_term_structure_payload(
+                _get_client(), observation_start, zscore_window,
+            )
+        except Exception:
+            logger.exception("analyze_credit_term_structure failed")
             raise
         return {
             "source": _src("/series/observations"),

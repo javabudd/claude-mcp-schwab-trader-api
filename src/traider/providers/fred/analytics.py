@@ -169,6 +169,110 @@ def credit_regime(hy_z: float | None, ig_z: float | None) -> str:
     return "stressed"
 
 
+def quality_curve_diagnostic(
+    rating_zscores: list[float | None],
+    rating_latests: list[float | None],
+    *,
+    broad_threshold: float = 1.0,
+    dispersion_threshold: float = 1.0,
+    compressed_threshold: float = -0.5,
+) -> dict[str, Any]:
+    """Shape diagnostic for a credit-quality OAS curve.
+
+    Inputs are per-rating values ordered highest-to-lowest quality
+    (``[AAA, AA, A, BBB]`` for IG, ``[BB, B, CCC]`` for HY). Returns
+    a dict with ``regime``, ``zscore_dispersion`` (max-min across
+    z-scores in z-units), and ``low_end_premium_pp`` (lowest-quality
+    OAS minus highest-quality OAS in percentage points — the absolute
+    cost of credit risk at the bottom of the segment).
+
+    Regime labels:
+
+    - ``compressed`` — every z below ``compressed_threshold`` (each
+      rating bucket tighter than its own history; classic late-cycle
+      reach-for-yield)
+    - ``broad_widening`` — every z above ``broad_threshold`` *and*
+      max-min dispersion under ``dispersion_threshold`` (uniform
+      stress across the quality stack)
+    - ``low_end_stress`` — dispersion at or above
+      ``dispersion_threshold`` and the worst-rated bucket holds the
+      max z (concentrated stress at the low end — quality flight)
+    - ``mixed`` — dispersion present but not a clean low-end story
+    - ``unknown`` — fewer than 2 usable z-scores
+    """
+    valid = [
+        (i, z) for i, z in enumerate(rating_zscores)
+        if z is not None and math.isfinite(z)
+    ]
+    if len(valid) < 2:
+        regime = "unknown"
+        dispersion: float | None = None
+    else:
+        zs = [z for _, z in valid]
+        dispersion = max(zs) - min(zs)
+        if all(z < compressed_threshold for z in zs):
+            regime = "compressed"
+        elif all(z > broad_threshold for z in zs) and dispersion < dispersion_threshold:
+            regime = "broad_widening"
+        elif dispersion >= dispersion_threshold:
+            worst_idx = len(rating_zscores) - 1
+            max_idx = max(valid, key=lambda iv: iv[1])[0]
+            regime = "low_end_stress" if max_idx == worst_idx else "mixed"
+        else:
+            regime = "mixed"
+
+    high_q = rating_latests[0] if rating_latests else None
+    low_q = rating_latests[-1] if rating_latests else None
+    if (
+        high_q is not None and low_q is not None
+        and math.isfinite(high_q) and math.isfinite(low_q)
+    ):
+        low_end_premium = low_q - high_q
+    else:
+        low_end_premium = None
+
+    return _jsonify({
+        "regime": regime,
+        "zscore_dispersion": dispersion,
+        "low_end_premium_pp": low_end_premium,
+    })
+
+
+def credit_term_slope(
+    short_oas: float | None,
+    long_oas: float | None,
+    *,
+    flat_threshold: float = 0.25,
+) -> dict[str, Any]:
+    """Slope label for an IG credit OAS term structure.
+
+    For investment-grade corporates the OAS curve is almost always
+    upward-sloping (longer duration carries more credit risk), so an
+    ``inverted`` reading is rare and signal-rich — flags acute
+    short-end stress (think 2008-Q4, March 2020).
+
+    Returns ``{"slope": long-short in pp, "label": ...}``:
+
+    - ``inverted`` — long_oas < short_oas
+    - ``flat`` — slope < ``flat_threshold`` pp
+    - ``normal`` — otherwise
+    - ``unknown`` — either input missing / non-finite
+    """
+    if (
+        short_oas is None or long_oas is None
+        or not math.isfinite(short_oas) or not math.isfinite(long_oas)
+    ):
+        return {"slope": None, "label": "unknown"}
+    slope = long_oas - short_oas
+    if slope < 0:
+        label = "inverted"
+    elif slope < flat_threshold:
+        label = "flat"
+    else:
+        label = "normal"
+    return {"slope": slope, "label": label}
+
+
 def breakeven_alignment(
     latest: float | None,
     target: float = 2.0,
@@ -254,6 +358,8 @@ __all__ = [
     "difference_series",
     "curve_shape",
     "credit_regime",
+    "quality_curve_diagnostic",
+    "credit_term_slope",
     "breakeven_alignment",
     "nfci_regime",
     "aggregate_regime",

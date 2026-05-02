@@ -105,14 +105,27 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   Portal that superseded SDW), BoJ, BoE statistical releases. Per
   hub rule: land one central bank at a time, each as its own module
   with its own primary-source client.
-- [ ] **credit** — High-yield and investment-grade OAS, CDX IG /
-  HY series, single-name CDS where licensing allows. Today only the
-  FRED mirrors are reachable (BAMLH0A0HYM2, BAMLC0A0CM, etc.); a
-  dedicated credit provider would add term structure and issuer-
-  level data. Candidates: FINRA TRACE (corporate bond prints, free
-  but heavy normalization), S&P Global / IHS Markit iTraxx / CDX
-  (paid), ICE BofA via FRED (partial). Priority because risk-off
-  regimes usually show up in credit spreads before equities.
+- [~] **credit** — Partial. The free OAS surface (ICE BofA via
+  FRED) is now wired up on the `fred` provider:
+  `analyze_credit_spreads` (headline IG `BAMLC0A0CM` + HY
+  `BAMLH0A0HYM2`), `analyze_credit_quality_curve` (rating buckets:
+  `BAMLC0A1CAAA`…`BAMLC0A4CBBB` for IG and `BAMLH0A1HYBB` /
+  `BAMLH0A2HYB` / `BAMLH0A3HYC` for HY, with broad-vs-concentrated
+  dispersion regime), `analyze_credit_term_structure` (IG term
+  buckets `BAMLC1A0C13Y`…`BAMLC8A0C15PY` with slope labels). That
+  covers the headline + quality + term-structure reads the original
+  entry called for, with no new auth.
+
+  **Still gapped, paid only:** CDX IG / HY series, single-name CDS,
+  HY by maturity bucket — all S&P Global / IHS Markit licensing.
+  FINRA TRACE was evaluated and rejected: the free tier (Market
+  Aggregates + FINRA-Bloomberg indices) doesn't close the OAS /
+  CDX gap, and the Bearer-token + MFA-provisioned auth is a poor
+  fit for the clone-and-run hub model. Tick-level TRACE prints are
+  paid via Finnhub or WRDS. Defer a dedicated `credit` provider
+  module until there's a paid-data budget for CDX / single-name
+  CDS — a free-tier-only TRACE wrapper would not be load-bearing
+  given what FRED already covers.
 - [ ] **commodities** — Futures prices and continuous-contract
   series (WTI / Brent, natgas, gold / silver, copper, grains),
   forward curves where published. Candidates: Yahoo `=F` tickers

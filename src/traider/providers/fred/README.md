@@ -157,6 +157,47 @@ the worse of the two z-scores (z<-1 `tight`, -1..1 `normal`, 1..2
 `wide`, ≥2 `stressed`) — the provider deliberately over-flags
 stress rather than under-flag it.
 
+#### `analyze_credit_quality_curve(observation_start=None, zscore_window=504, segment="both")`
+
+US corporate OAS by **credit rating** — IG (`AAA / AA / A / BBB`
+via `BAMLC0A1CAAA`…`BAMLC0A4CBBB`), HY (`BB / B / CCC` via
+`BAMLH0A1HYBB` / `BAMLH0A2HYB` / `BAMLH0A3HYC`), or both. Per
+rating: latest, 1m/3m/6m/1y deltas, z-score / percentile vs
+`zscore_window`.
+
+The reason to reach for this over `analyze_credit_spreads` is to
+see whether stress is broad-based or concentrated at the low end —
+CCC blowing out while BB stays calm is a classic late-cycle
+quality-flight signal that the headline HY OAS softens. Per
+segment `derived` carries:
+
+- `regime`: `compressed` (all z<-0.5; reach-for-yield),
+  `broad_widening` (all z>1, low dispersion; uniform stress),
+  `low_end_stress` (dispersion ≥1.0 with the worst-rated bucket
+  on top), `mixed` otherwise.
+- `zscore_dispersion`: range across rating-bucket z-scores.
+- `low_end_premium_pp`: lowest-quality OAS minus highest-quality
+  OAS in percentage points.
+
+`segment` is `ig`, `hy`, or `both` (default).
+
+#### `analyze_credit_term_structure(observation_start=None, zscore_window=504)`
+
+IG corporate OAS by **maturity bucket** — 1-3y, 3-5y, 5-7y, 7-10y,
+10-15y, 15+y (`BAMLC1A0C13Y` through `BAMLC8A0C15PY`). Per bucket:
+latest, 1m/3m/6m/1y deltas, z-score / percentile vs
+`zscore_window`.
+
+For IG the OAS term structure is almost always upward-sloping
+(longer duration = more credit risk), so an `inverted` reading is
+rare and signal-rich (think 2008-Q4, March 2020). `derived`
+carries two slope reads — `front_to_belly` (1-3y → 7-10y) and
+`full_curve` (1-3y → 15+y) — each with `slope` in pp and a label
+(`inverted` / `flat` / `normal`).
+
+HY term-bucket OAS is not published by ICE BofA on FRED; HY by
+maturity is a paid index-holdings feed.
+
 #### `analyze_breakevens(observation_start=None, zscore_window=504, target=2.0, target_band=0.25)`
 
 Market-implied inflation expectations vs the Fed's 2% target.
@@ -231,6 +272,14 @@ secondary component.
   read `derived.curve_shape` and the per-slope `inverted` flags.
 - **"Are credit spreads stressed?"** — `analyze_credit_spreads()`,
   check `derived.regime` and the per-index z-scores.
+- **"Is HY stress broad or concentrated at the low end?"** —
+  `analyze_credit_quality_curve(segment="hy")`, read
+  `segments.hy.derived.regime` (`low_end_stress` flags CCC pulling
+  away from BB).
+- **"Is the IG credit curve still upward-sloping?"** —
+  `analyze_credit_term_structure()`, read
+  `derived.full_curve.label` (an `inverted` reading is rare and
+  signal-rich).
 
 Pair these with `schwab` / `yahoo` provider prompts to condition
 equity decisions on the macro calendar — e.g. *"run
