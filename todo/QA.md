@@ -126,12 +126,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
 
 ## HIGH
 
-- [ ] **#7 — OAuth token file has a permission TOCTOU window on
+- [x] **#7 — OAuth token file has a permission TOCTOU window on
   first write.** `schwab/auth.py:95-101` writes the file at default
   umask, then chmods to 0600. Tokens are world-readable for the
   milliseconds in between. `schwab_client.py:528-538` does this
   correctly via `tmp + os.replace + chmod`; `auth.py` does not. Use
   the same pattern.
+  - **Resolved:** `run_auth_flow` now writes to a sibling `.tmp`
+    file and `os.replace`s it onto the canonical token path before
+    chmod, matching the `_save_tokens` pattern in `schwab_client.py`.
+    The canonical token path is no longer briefly world-readable on
+    the first write — the well-known path only ever sees the
+    finished file via the atomic rename, and the chmod follow-up
+    keeps parity with the rest of the client (including the
+    Windows-filesystem fallback comment).
 
 - [ ] **#8 — MCP server defaults: `0.0.0.0` + DNS-rebinding
   protection disabled.** `server.py:55,115-116`. The combination

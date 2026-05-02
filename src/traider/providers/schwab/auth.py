@@ -93,11 +93,14 @@ def run_auth_flow() -> None:
     }
 
     token_file.parent.mkdir(parents=True, exist_ok=True)
-    with token_file.open("w", encoding="utf-8") as f:
+    tmp = token_file.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
         json.dump(tokens, f, indent=2)
+    os.replace(tmp, token_file)
     try:
         os.chmod(token_file, 0o600)
     except OSError:
+        # Best-effort; Windows filesystems may reject chmod.
         pass
 
     print()
