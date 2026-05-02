@@ -211,10 +211,21 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
   fabricated numbers," coercion failure should raise (or at minimum
   surface a per-row parse-warning array on the envelope).
 
-- [ ] **#16 — `_pick_information_table` swallows 404 from
+- [x] **#16 — `_pick_information_table` swallows 404 from
   `filing_index`.** `sec_edgar/tools.py:132-133`. The caller
   (`get_institutional_portfolio`) then reports a parser error
   instead of the real 404 / network failure.
+  - **Resolved:** the `try / except SecEdgarError: return None`
+    around `filing_index(...)` is gone — 404, network failure, and
+    rate-limit errors now propagate to `get_institutional_portfolio`,
+    whose existing `try / except Exception` block logs and re-raises,
+    so callers see the real cause. The fall-through `return None`
+    after scanning `directory.item` is preserved (and now the only
+    `None` path), so the caller's "no informationTable XML in
+    {accession}" raise stays correct for the case it actually
+    describes — an index that was fetched cleanly but contains no
+    matching XML name. Docstring updated to spell out the new
+    contract.
 
 - [ ] **#17 — fred analytics output mixes derived classifications
   with raw fields.** `fred/tools.py:161-297` and `analytics.py`.

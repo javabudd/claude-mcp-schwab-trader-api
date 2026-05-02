@@ -123,14 +123,17 @@ def _pick_information_table(cik: str, row: dict[str, Any]) -> str | None:
     varied over time (``infotable.xml``, ``informationtable.xml``,
     ``<accession>_infotable.xml``). We ask EDGAR's ``index.json`` for
     the filing and pick the one whose name matches.
+
+    Returns ``None`` only when the index was fetched cleanly but no
+    matching XML name was found. ``SecEdgarError`` from ``filing_index``
+    (404, network failure, rate limit) is propagated so the caller
+    surfaces the real cause instead of conflating it with "no info
+    table in this filing".
     """
     name = (row.get("primary_doc_name") or "").lower()
     if "infotable" in name or "informationtable" in name:
         return row["primary_doc_name"]
-    try:
-        index = _get_client().filing_index(cik, row["accession_nodash"])
-    except SecEdgarError:
-        return None
+    index = _get_client().filing_index(cik, row["accession_nodash"])
     for item in index.get("directory", {}).get("item", []):
         iname = (item.get("name") or "").lower()
         if iname.endswith(".xml") and (
