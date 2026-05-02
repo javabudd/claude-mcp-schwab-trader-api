@@ -243,9 +243,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     fork per provider, normalize at the boundary" rule the
     `ohlcv` section already enforces.
 
-- [ ] **#14 — DEVELOPING.md package-layout block (~lines 51-108) is
+- [x] **#14 — DEVELOPING.md package-layout block (~lines 51-108) is
   missing files** that exist on disk: `schwab/options_summary.py`,
   `yahoo/options_summary.py`, `fred/analytics.py`. Stale.
+  - **Resolved:** the two `options_summary.py` paths went away with
+    #13 (lifted to `src/traider/options/summary.py`, per-provider
+    copies deleted), so they no longer need a layout entry.
+    `fred/analytics.py` is now listed under the `fred/` block as
+    *"pure-numpy macro analytics over FRED observation series"*.
+    Two additional stale entries surfaced during the audit and were
+    fixed in the same pass: `intent/account_profile.py` (YAML loader
+    for user-authored account framing — age, role, risk capacity)
+    and `intent/rules.py` (YAML rules loader, seed `rules/` +
+    per-user `rules.local/` overlay), both of which landed after the
+    QA pass was written and were missing from the `intent/` block.
 
 - [ ] **#15 — Form 4 `_bool` / `_float` silent coercion.**
   `sec_edgar/form4_parser.py:173-186`. Malformed booleans become

@@ -83,6 +83,7 @@ src/traider/
       __init__.py
       tools.py
       fred_client.py       # httpx wrapper
+      analytics.py         # pure-numpy macro analytics over FRED observation series
     fed_calendar/
       __init__.py
       tools.py
@@ -126,6 +127,8 @@ src/traider/
       __init__.py
       tools.py
       store.py             # SQLite-backed local trade-intent journal (no external writes)
+      account_profile.py   # YAML loader for user-authored account framing (age, role, risk capacity)
+      rules.py             # YAML rules loader (seed rules/ + per-user rules.local/ overlay)
 ```
 
 Each provider is **self-contained under its directory** — imports
