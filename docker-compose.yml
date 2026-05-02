@@ -30,13 +30,15 @@ services:
     image: traider:latest
     env_file:
       - ./.env
+    # Env vars below pin the providers' container-internal paths to
+    # the bind mounts below. They cannot be overridden from .env —
+    # compose's `environment:` block takes precedence over
+    # `env_file:`. To relocate any of these on the host, edit the
+    # corresponding bind mount (or use TRAIDER_HOME for the user
+    # data tree).
     environment:
       TRAIDER_LOG_DIR: /app/logs
-      # Default token location for the schwab provider. Overridable via
-      # SCHWAB_TOKEN_FILE in ./.env if the user stores the token
-      # somewhere non-standard.
       SCHWAB_TOKEN_FILE: /tokens/schwab-token.json
-      # Factor provider caches Ken French ZIPs here across restarts.
       FACTOR_CACHE_DIR: /cache
       # Framework rules. Seed lives in the image at /app/rules; per-user
       # overrides come in via the bind mount below at
