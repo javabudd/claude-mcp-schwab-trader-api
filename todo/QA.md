@@ -76,11 +76,19 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     partial `callExpDateMap` / `putExpDateMap` and a misleading
     `numberOfContracts`.
 
-- [ ] **#4 — SEC Form 4 silent-skip on parse failure.**
+- [x] **#4 — SEC Form 4 silent-skip on parse failure.**
   `sec_edgar/tools.py:395-409`. `parse()` failures are logged and
   the filing is dropped from the response. The summary count
   silently shrinks; caller can't tell whether a CEO had no recent
   trades or whether 3/20 Form 4s failed to parse.
+  - **Resolved:** the per-row loop in `get_insider_transactions`
+    now raises `SecEdgarError` on the first failed Form 4 fetch /
+    parse with the original exception chained, matching the
+    posture taken for #2 and #3. The error message names the CIK,
+    accession number, and XML document so the caller can pinpoint
+    the offending filing. Callers no longer get a misleadingly
+    small `count` that conflates "no recent insider activity"
+    with "some filings didn't parse."
 
 - [ ] **#5 — 13F value-unit boundary is off-by-month.**
   `sec_edgar/form13f_parser.py:119`. The check is

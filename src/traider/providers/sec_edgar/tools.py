@@ -402,11 +402,15 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                     )
                     doc = form4_parser.parse(xml)
                 except Exception as exc:
-                    logger.warning(
-                        "form4 parse failed cik=%s accession=%s doc=%s: %s",
-                        company.cik, row["accession_number"], xml_name, exc,
-                    )
-                    continue
+                    # Don't silently drop: a shrunken `count` reads as
+                    # "no insider activity" when in fact some filings
+                    # failed to parse. Surface and stop, per AGENTS.md
+                    # "no silent fallbacks that change the numbers."
+                    raise SecEdgarError(
+                        f"form4 parse failed for cik={company.cik} "
+                        f"accession={row['accession_number']} "
+                        f"doc={xml_name}: {exc}"
+                    ) from exc
                 parsed.append({
                     "accession_number": row["accession_number"],
                     "filing_date": row["filing_date"],
