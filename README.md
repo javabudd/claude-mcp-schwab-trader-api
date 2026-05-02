@@ -134,6 +134,23 @@ See [Available providers](#available-providers) above for the full
 list and the env var each one needs. Never commit `.env` or paste
 its contents into logs or chat.
 
+While you're configuring, also copy the account-profile template if
+you plan to enable the `intent` provider:
+
+```bash
+cp account-profiles.example.yaml ~/.traider/account-profiles.yaml
+```
+
+This captures framing the brokerage API can't supply — your age,
+the role each account plays in your total wealth (trading sleeve vs.
+primary wealth vs. retirement), and risk capacity — so the analyst
+can tell whether a given allocation is "appropriately tactical" or
+"wildly off-frame" for the account in question. Without it, the
+`intent` provider's `get_account_profile` returns `_has_file: false`
+and the model has to ask you the framing questions every session.
+Override the path with `TRAIDER_ACCOUNT_PROFILES` if you'd rather
+keep it elsewhere.
+
 ### 2. Run the server
 
 #### With Docker (recommended)
@@ -259,8 +276,9 @@ bet. Then pulls SPY's price action, IV regime and term structure,
 and the week's macro / FOMC catalysts; sketches candidate
 structures (short delta, put debit spread, put calendar, collar
 against a long book…) with their R/R; and once specific levels and
-size are on the table, loads `RISK.md` and `OPTIONS.md` for the
-sizing math and chain-quality checks before naming a strike.
+size are on the table, consults the trade-prep `rules/` (via the
+intent provider's `list_rules` / `get_rule` tools) and `OPTIONS.md`
+for the sizing math and chain-quality checks before naming a strike.
 
 ### *"Should I buy NVDA here?"*
 
@@ -316,7 +334,8 @@ traider/
 ├── CLAUDE.md                 # Claude Code entry point — re-exports AGENTS.md
 ├── DEVELOPING.md             # dev overlay (not auto-loaded)
 ├── OPTIONS.md                # options-analysis methodology (loaded when options are in scope)
-├── RISK.md                   # trade-preparation methodology (loaded when sizing / stops are in scope)
+├── RISK.md                   # thin orientation pointing at rules/
+├── rules/                    # trade-preparation framework (one YAML per rule; surfaced via the intent provider's list_rules / get_rule tools)
 ├── todo/PROVIDERS.md         # punch list of planned provider additions
 ├── account-profiles.example.yaml   # template — copy to ~/.traider/account-profiles.yaml to capture account framing (age, role in total wealth, risk capacity)
 ├── README.md                 # this file
