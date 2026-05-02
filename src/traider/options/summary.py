@@ -1,4 +1,4 @@
-"""Compact analyst summaries of Schwab-shaped option chain payloads.
+"""Compact analyst summaries of option-chain payloads.
 
 Raw chains can run tens of thousands of tokens for a single expiration
 once strike counts are reasonable, which is unusable for direct LLM
@@ -6,9 +6,9 @@ consumption. This module extracts the analyst-relevant stats — ATM
 straddle / implied move, IV skew wings, OI and volume clusters — into
 a bounded-size summary keyed per expiration.
 
-Input shape is the Schwab ``get_option_chain`` response (which Yahoo
-mirrors): top-level ``underlyingPrice`` / ``symbol`` / ``isDelayed``
-plus ``callExpDateMap`` and ``putExpDateMap`` keyed by
+Input shape is the canonical chain payload every market-data backend
+in this repo emits: top-level ``underlyingPrice`` / ``symbol`` /
+``isDelayed`` plus ``callExpDateMap`` and ``putExpDateMap`` keyed by
 ``"YYYY-MM-DD:dte"`` → strike (string) → list of contract dicts.
 """
 from __future__ import annotations
@@ -189,7 +189,7 @@ def summarize_chain(
     wings: int = 5,
     top_n: int = 5,
 ) -> dict[str, Any]:
-    """Produce a bounded-size analyst view of a Schwab-shaped chain.
+    """Produce a bounded-size analyst view of an option chain.
 
     Per expiration: ATM straddle cost and implied one-day move, IV skew
     across ±``wings`` strikes around ATM, top ``top_n`` strikes by open

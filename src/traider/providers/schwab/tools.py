@@ -17,8 +17,8 @@ from mcp.server.fastmcp import FastMCP
 from ...logging_utils import attach_provider_logger
 from ...ohlcv import analytics
 from ...ohlcv.ta import run_indicators
+from ...options.summary import summarize_chain
 from ...settings import TraiderSettings
-from .options_summary import summarize_chain
 from .schwab_client import SCHWAB_API_BASE, SchwabAuthError, SchwabClient
 
 

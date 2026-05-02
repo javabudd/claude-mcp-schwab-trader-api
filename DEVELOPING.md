@@ -17,6 +17,7 @@ touching the code.
 - [Adding a new provider](#adding-a-new-provider)
 - [Shared modules](#shared-modules)
   - [ohlcv (TA + analytics)](#ohlcv-ta--analytics)
+  - [options (chain summary)](#options-chain-summary)
 - Per-provider dev notes
   - [schwab](#schwab)
   - [yahoo](#yahoo)
@@ -64,6 +65,9 @@ src/traider/
     __init__.py            # re-exports analytics + ta
     ta.py                  # TA-Lib indicator runner (provider-agnostic)
     analytics.py           # pure-numpy return/risk/regime/structure
+  options/
+    __init__.py            # re-exports summary
+    summary.py             # bounded-size analyst view of an option chain
   providers/
     __init__.py            # (empty — providers are imported lazily)
     schwab/
@@ -128,13 +132,17 @@ Each provider is **self-contained under its directory** — imports
 inside a provider are relative (`from .client import X`, `from ..
 logging_utils import …`). Providers don't import from each other, but
 they may import from package-level shared modules (`logging_utils`,
-`ohlcv`, `settings`). The `ohlcv` package holds provider-agnostic TA
-+ quant analytics that operate on the generic candle shape every
-market-data backend emits; both `schwab/tools.py` and `yahoo/tools.py`
-consume it via `from ...ohlcv import analytics` and
-`from ...ohlcv.ta import run_indicators`. See
+`ohlcv`, `options`, `settings`). The `ohlcv` package holds
+provider-agnostic TA + quant analytics that operate on the generic
+candle shape every market-data backend emits; both `schwab/tools.py`
+and `yahoo/tools.py` consume it via `from ...ohlcv import analytics`
+and `from ...ohlcv.ta import run_indicators`. See
 [Shared modules → ohlcv](#ohlcv-ta--analytics) for the contract and
-the rationale for what does and does not belong there.
+the rationale for what does and does not belong there. The `options`
+package is the analogous home for option-chain-shape helpers — it
+currently exposes `summary.summarize_chain` (a bounded analyst view of
+the canonical option-chain payload) consumed by both providers via
+`from ...options.summary import summarize_chain`.
 
 ## How the provider system works
 
@@ -380,6 +388,48 @@ provider's payload to the candle shape and adds `source` /
 - Don't introduce per-provider variants. If two backends emit
   candles in different shapes, the right fix is to normalize at the
   provider layer, not to fork the analytics.
+
+### options (chain summary)
+
+`src/traider/options/` holds provider-agnostic helpers that operate on
+the canonical option-chain payload both `schwab` and `yahoo` emit:
+top-level `underlyingPrice` / `symbol` / `isDelayed` plus
+`callExpDateMap` and `putExpDateMap` keyed by `"YYYY-MM-DD:dte"` →
+strike (string) → list of contract dicts. Same boundary rule as
+`ohlcv`: nothing here imports from a specific provider — this is
+where market-data backends agree on a schema.
+
+**Public surface (current).**
+
+- `summary.summarize_chain(chain, wings=5, top_n=5)` — bounded
+  analyst view of a chain. Per expiration: ATM straddle / implied
+  move / implied range, IV skew across ±`wings` strikes around ATM,
+  top `top_n` strikes by open interest and volume on each side.
+  Pass-throughs `dataQualityWarning` when the source provider
+  emitted one. Raises `ValueError` if `underlyingPrice` is missing
+  (no anchor for ATM).
+
+**Things that will bite you.**
+
+- **The shape, not the source.** `summarize_chain` keys off
+  `callExpDateMap` / `putExpDateMap` and the contract fields
+  (`mark`, `bid`, `ask`, `volatility`, `delta`, `openInterest`,
+  `totalVolume`, `inTheMoney`). If a future market-data backend
+  emits a chain in a different shape, normalize it at the provider
+  layer (Yahoo already does this in `yahoo_client.py`) — don't fork
+  this module.
+- **`mark` is mid-of-bid-ask, not a fill.** The summary surfaces
+  `mark` straight through; OPTIONS.md has the analyst-side caveat,
+  but the function itself does not "improve" the price.
+
+**What not to do.**
+
+- Don't add caching or HTTP. Pure functions only.
+- Don't add provider-shaped pass-throughs (e.g. Schwab-specific
+  `underlying.*` blocks). The summary is intentionally narrow to the
+  fields both backends carry.
+- Don't introduce per-provider variants. If a backend's chain shape
+  drifts, normalize at the provider boundary.
 
 ---
 

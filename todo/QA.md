@@ -216,7 +216,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
 
 ## MEDIUM
 
-- [ ] **#13 — `schwab/options_summary.py` and
+- [x] **#13 — `schwab/options_summary.py` and
   `yahoo/options_summary.py` are byte-for-byte identical** (`cmp`
   confirmed). DEVELOPING.md:113-115 calls out
   `ta.py` / `analytics.py` duplication as intentional, but
@@ -225,6 +225,23 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
   docstring level. Either cite it explicitly in the duplication
   note or extract to `traider.providers._shared.options_summary`
   (no cross-provider import — both still import from `_shared`).
+  - **Resolved:** lifted to a top-level
+    `src/traider/options/summary.py`, mirroring the
+    `src/traider/ohlcv/` precedent (commit 8a9a1d5 — "single source
+    of truth" for cross-provider helpers, not
+    `providers/_shared/`). Both providers now import via
+    `from ...options.summary import summarize_chain`; the per-
+    provider `options_summary.py` files are deleted. Module
+    docstring is now provider-agnostic ("canonical chain payload
+    every market-data backend emits") to match its new home.
+    DEVELOPING.md updates: package-layout block adds the
+    `options/` entry, the import contract paragraph names
+    `options` alongside `ohlcv` / `logging_utils` / `settings`,
+    and the *Shared modules* section gains an
+    [options (chain summary)](../DEVELOPING.md#options-chain-summary)
+    subsection covering the shape contract and the same "don't
+    fork per provider, normalize at the boundary" rule the
+    `ohlcv` section already enforces.
 
 - [ ] **#14 — DEVELOPING.md package-layout block (~lines 51-108) is
   missing files** that exist on disk: `schwab/options_summary.py`,
