@@ -10,13 +10,13 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
 
 ## Triage order
 
-1. #5 (13F unit boundary) — only finding that materially corrupts numbers.
-2. #2, #3, #4, #6 — silent fallbacks; AGENTS.md treats these as the
-   trust-breaking class of bug.
-3. ~~#1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`~~
-   (resolved).
-4. Security tightening: #7, #8.
-5. Land `tests/` + CI; start with parser fixtures (Form 4 XML, 13F
+1. #6 — last remaining silent-fallback (fed-calendar layout drift).
+   AGENTS.md treats this class as trust-breaking.
+2. ~~#1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`~~
+   (resolved). ~~#2, #3, #4 silent fallbacks~~ (resolved).
+   ~~#5 13F unit boundary~~ (resolved).
+3. Security tightening: #7, #8.
+4. Land `tests/` + CI; start with parser fixtures (Form 4 XML, 13F
    XML, FOMC HTML snapshot, Ken French CSV block) since those are
    most prone to silent breakage.
 
@@ -90,12 +90,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     small `count` that conflates "no recent insider activity"
     with "some filings didn't parse."
 
-- [ ] **#5 — 13F value-unit boundary is off-by-month.**
+- [x] **#5 — 13F value-unit boundary is off-by-month.**
   `sec_edgar/form13f_parser.py:119`. The check is
   `(year, month) >= (2022, 9)` for the "≥ 2022-09-30" cutoff. A
   filing with `period_of_report=2022-09-15` (still thousands per
   SEC) is mis-tagged as `dollars`, blowing up summed positions by
   1000×. Only finding that materially distorts numbers.
+  - **Resolved:** `_infer_unit` now parses `period_of_report` with
+    `date.fromisoformat` and compares against a named
+    `_DOLLARS_CUTOFF = date(2022, 9, 30)` constant, so any period
+    strictly before 2022-09-30 (including 2022-09-15) returns
+    `thousands_of_dollars`. Malformed dates still degrade to
+    `dollars_or_thousands_unknown`. Only caller
+    (`get_institutional_portfolio` in `tools.py:496`) feeds the
+    EDGAR `reportDate` field, which is ISO `YYYY-MM-DD`.
 
 - [ ] **#6 — fed-calendar swallows layout drift.**
   `fed_calendar/fomc_scraper.py:137-152`. If federalreserve.gov

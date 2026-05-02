@@ -35,6 +35,7 @@ the best guess.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 from lxml import etree
@@ -106,6 +107,9 @@ def _parse_info(info: etree._Element) -> dict[str, Any]:
     }
 
 
+_DOLLARS_CUTOFF = date(2022, 9, 30)
+
+
 def _infer_unit(period_of_report: str | None) -> str:
     # SEC changed the unit on 13F value from thousands to dollars for
     # periods ending on or after 2022-09-30 (published mid-2022). If we
@@ -113,10 +117,10 @@ def _infer_unit(period_of_report: str | None) -> str:
     if not period_of_report:
         return "dollars_or_thousands_unknown"
     try:
-        year, month, _ = period_of_report.split("-", 2)
+        period = date.fromisoformat(period_of_report)
     except ValueError:
         return "dollars_or_thousands_unknown"
-    if (int(year), int(month)) >= (2022, 9):
+    if period >= _DOLLARS_CUTOFF:
         return "dollars"
     return "thousands_of_dollars"
 
