@@ -21,7 +21,11 @@ https://finnhub.io and drop the key in ``.env`` as
 
 Rate-limit / auth errors propagate as :class:`FinnhubError` — no
 retries, no silent fallbacks (per hub AGENTS.md). Free tier is
-60 requests/minute; the tool surfaces 429s rather than looping.
+60 requests/minute; the tool surfaces 429s rather than looping. A
+403 from a premium-only endpoint surfaces as the more specific
+:class:`FinnhubPremiumRequiredError` so a future maintainer wiring
+a paid endpoint sees the plan gap immediately rather than a
+generic 4xx.
 """
 from __future__ import annotations
 
@@ -40,6 +44,10 @@ _EARNINGS_PATH = "/stock/earnings"
 
 class FinnhubError(RuntimeError):
     """Raised when the Finnhub API returns a non-2xx response."""
+
+
+class FinnhubPremiumRequiredError(FinnhubError):
+    """Raised on 403 — endpoint requires a paid Finnhub plan."""
 
 
 class FinnhubClient:
@@ -69,6 +77,12 @@ class FinnhubClient:
             resp = self._http.get(path, params=cleaned)
         except httpx.HTTPError as exc:
             raise FinnhubError(f"Finnhub request failed: {exc}") from exc
+        if resp.status_code == 403:
+            body = resp.text[:500]
+            raise FinnhubPremiumRequiredError(
+                f"Finnhub 403 on {path}: premium plan required for this "
+                f"endpoint. Upstream body: {body}"
+            )
         if resp.status_code >= 400:
             body = resp.text[:500]
             raise FinnhubError(

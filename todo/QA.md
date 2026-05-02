@@ -163,13 +163,24 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
   the rest of the client enforces. Works today because EDGAR's
   archive routing tolerates it; will break the day SEC tightens.
 
-- [ ] **#11 — Finnhub clients don't distinguish 403 from generic
+- [x] **#11 — Finnhub clients don't distinguish 403 from generic
   4xx.** `earnings/finnhub_client.py:72-76`,
   `estimates/finnhub_client.py:67-71`. Premium endpoints return
   403; a future maintainer wiring one would see a generic
   `FinnhubError` instead of a clear "premium plan required"
   surface. Estimates' README/docstring is very firm about this —
   code should match.
+  - **Resolved:** both clients now define
+    `FinnhubPremiumRequiredError(FinnhubError)` and the `_get`
+    helper checks `status_code == 403` *before* the generic
+    `>= 400` branch, so a 403 surfaces with an explicit "premium
+    plan required for this endpoint" message naming the path.
+    Subclassing `FinnhubError` keeps existing `except FinnhubError`
+    handlers (and the tool-layer re-raises in `earnings/tools.py`
+    / `estimates/tools.py`) catching the new type unchanged. Module
+    docstrings updated on both sides to reference the new subclass;
+    the estimates docstring also calls out that this matches the
+    README's firm stance on the premium-only gap.
 
 - [ ] **#12 — Zero tests, zero CI.** No `tests/`, no
   `.github/workflows/`, no lint or typecheck config. For a tool
