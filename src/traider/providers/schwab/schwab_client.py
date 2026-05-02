@@ -155,10 +155,16 @@ class SchwabClient:
             "needPreviousClose": str(need_previous_close).lower(),
         }
         if start_date is not None or end_date is not None:
-            if start_date is not None:
-                params["startDate"] = start_date
-            if end_date is not None:
-                params["endDate"] = end_date
+            if start_date is None:
+                raise ValueError(
+                    "get_price_history: end_date set without start_date. "
+                    "Schwab's /pricehistory requires startDate whenever "
+                    "endDate is provided; pass both, or pass period."
+                )
+            params["startDate"] = start_date
+            params["endDate"] = (
+                end_date if end_date is not None else int(time.time() * 1000)
+            )
         else:
             params["period"] = period
         return self._get_json("/marketdata/v1/pricehistory", params=params)

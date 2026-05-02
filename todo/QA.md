@@ -142,13 +142,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
   document `0.0.0.0` for Docker), or re-enable rebinding protection,
   or both.
 
-- [ ] **#9 — Schwab `get_price_history` builds an invalid request
+- [x] **#9 — Schwab `get_price_history` builds an invalid request
   when only one of `start_date` / `end_date` is set.**
   `schwab/schwab_client.py:156-162`. The `else: params["period"] =
   period` is in the else branch of `if start_date or end_date`, so
   passing just `start_date=...` sends `startDate` with no `endDate`
   and no `period`. Schwab rejects that combination with a terse 400.
   Either require both dates together or fall back to `period`.
+  - **Resolved:** the date-window branch now defaults `endDate` to
+    `now` when only `start_date` is given (matching the tool-layer
+    docstring contract at `tools.py:261-262` — *"Defaults to now
+    when only start_date is given"* — which the client previously
+    didn't honor) and raises `ValueError` when only `end_date` is
+    given (an undocumented combination Schwab rejects). Both-dates
+    and neither-date paths are unchanged.
 
 - [ ] **#10 — CIK is passed `int(cik)` (zero-padding stripped) when
   building Archive URLs.** `sec_edgar/edgar_client.py:275,286`;
