@@ -23,10 +23,15 @@ loaded into your AI CLI's context. Internals for modifying the code
 
 ## Available providers
 
-One env var, `TRAIDER_PROVIDERS`, controls the exposed tool surface.
-Out of the box, traider ships with the no-credentials set enabled —
-useful market data, macro, factors, Treasury, and CFTC positioning
-without any signups:
+One env var, `TRAIDER_PROVIDERS`, controls the data-provider tool
+surface. The `intent` provider — local trade-intent journal,
+framework rules, and account profile — is **always loaded** as core
+analyst infrastructure and is *not* toggled by this env var (listing
+it explicitly is harmless but unnecessary).
+
+Out of the box, traider ships with the no-credentials data set
+enabled — useful market data, macro, factors, Treasury, and CFTC
+positioning without any signups:
 
 ```
 TRAIDER_PROVIDERS=yahoo,fed-calendar,factor,treasury,cftc
@@ -51,7 +56,12 @@ entitlement.
 | `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
 | `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
 | `cftc`         | CFTC Commitments of Traders (weekly positioning) | None (optional `CFTC_APP_TOKEN`) |
-| `intent`       | Local trade-intent journal + framework rules + account profile (why each share/contract exists, what discipline governs it, what role the account plays in your total wealth) | None (local SQLite, optional `TRAIDER_INTENT_DB`, `TRAIDER_ACCOUNT_PROFILES`) |
+
+Plus, always loaded regardless of `TRAIDER_PROVIDERS`:
+
+| Provider | Tool group | Creds required |
+|----------|------------|----------------|
+| `intent` | Local trade-intent journal + framework rules + account profile (why each share/contract exists, what discipline governs it, what role the account plays in your total wealth) | None (local SQLite, optional `TRAIDER_INTENT_DB`, `TRAIDER_ACCOUNT_PROFILES`) |
 
 Rules:
 
@@ -62,9 +72,10 @@ Rules:
   names, so they compose freely with each other and with whichever
   market-data backend you chose.
 
-If `TRAIDER_PROVIDERS` is empty, the server starts with no tools
-registered — useful for smoke-testing the transport but not for
-actual work.
+If `TRAIDER_PROVIDERS` is empty, only the always-on `intent` provider
+is registered — useful for smoke-testing the transport or for working
+purely against the local intent journal, but you'll get no live
+market data.
 
 ### Choosing a market-data backend
 
@@ -104,7 +115,8 @@ cp .env.dist .env
 
 `.env.dist` ships with the no-credentials default, so an unedited
 `.env` will start a working server (Yahoo quotes, FOMC calendar, Ken
-French factors, Treasury auctions, CFTC positioning):
+French factors, Treasury auctions, CFTC positioning, plus the
+always-on `intent` journal / rules / account profile):
 
 ```
 TRAIDER_PROVIDERS=yahoo,fed-calendar,factor,treasury,cftc
@@ -134,8 +146,9 @@ See [Available providers](#available-providers) above for the full
 list and the env var each one needs. Never commit `.env` or paste
 its contents into logs or chat.
 
-While you're configuring, also copy the account-profile template if
-you plan to enable the `intent` provider:
+The `intent` provider is always on, but its account-profile surface
+needs a file you populate. While you're configuring, copy the
+template:
 
 ```bash
 cp account-profiles.example.yaml ~/.traider/account-profiles.yaml
@@ -145,11 +158,10 @@ This captures framing the brokerage API can't supply — your age,
 the role each account plays in your total wealth (trading sleeve vs.
 primary wealth vs. retirement), and risk capacity — so the analyst
 can tell whether a given allocation is "appropriately tactical" or
-"wildly off-frame" for the account in question. Without it, the
-`intent` provider's `get_account_profile` returns `_has_file: false`
-and the model has to ask you the framing questions every session.
-Override the path with `TRAIDER_ACCOUNT_PROFILES` if you'd rather
-keep it elsewhere.
+"wildly off-frame" for the account in question. Without it,
+`get_account_profile` returns `_has_file: false` and the model has
+to ask you the framing questions every session. Override the path
+with `TRAIDER_ACCOUNT_PROFILES` if you'd rather keep it elsewhere.
 
 ### 2. Run the server
 
