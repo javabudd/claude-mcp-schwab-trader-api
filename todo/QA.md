@@ -47,12 +47,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     renamed to `series_source` to avoid colliding with the envelope
     URL.
 
-- [ ] **#2 — Yahoo silent-fallback on `.info` fetch failure.**
+- [x] **#2 — Yahoo silent-fallback on `.info` fetch failure.**
   `yahoo/yahoo_client.py:488-490`. Exception during `_quote_payload`
   is caught and the dict left empty, so `get_quote` returns `null`
   fields instead of raising. Direct violation of AGENTS.md "no
   silent fallbacks that change the numbers" / "no fabricated
   numbers."
+  - **Resolved:** `_quote_payload` now re-raises as a new
+    `YahooDataError` when `ticker.info` fails, with the original
+    exception chained. The tool layer (`yahoo/tools.py:99-101`,
+    `126-128`) already re-raises, so the failure surfaces to the
+    caller instead of being papered over with a `None`-valued
+    quote. `get_quotes` aborts the batch on the first bad symbol
+    rather than silently dropping it — same "say so and stop"
+    posture AGENTS.md takes on rate limits.
 
 - [ ] **#3 — Yahoo silent-drop of failed option expirations.**
   `yahoo/yahoo_client.py:336-338`. When `ticker.option_chain(d)`

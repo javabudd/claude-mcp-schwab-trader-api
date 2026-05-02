@@ -70,6 +70,18 @@ class YahooCapabilityError(RuntimeError):
     """
 
 
+class YahooDataError(RuntimeError):
+    """Raised when an upstream Yahoo fetch fails outright.
+
+    Distinct from :class:`YahooCapabilityError` (which means Yahoo has
+    no equivalent surface) — this is for transient/structural
+    failures where we *would* have had data but the call to yfinance
+    raised. Surface this to the caller rather than returning a
+    payload of ``None``-valued fields, per the hub AGENTS.md "no
+    silent fallbacks / no fabricated numbers" rule.
+    """
+
+
 class YahooClient:
     """Yahoo Finance client mirroring :class:`SchwabClient`'s tool surface."""
 
@@ -483,11 +495,17 @@ class YahooClient:
         # come from ``info`` via the safe ``_info_get`` wrapper, which
         # swallows that bug per-key.
         ticker = yf.Ticker(_yahoo_symbol(symbol))
-        info: Any = {}
         try:
-            info = ticker.info or {}
-        except Exception:
-            logger.exception("yfinance .info failed symbol=%s", symbol)
+            info: Any = ticker.info or {}
+        except Exception as e:
+            # Don't swallow: a payload of None-valued fields is
+            # indistinguishable from a real quote where every field
+            # happened to be missing. Per AGENTS.md, surface the
+            # failure so the caller can stop rather than cite a
+            # fabricated quote.
+            raise YahooDataError(
+                f"yfinance .info failed for {symbol!r}: {e}"
+            ) from e
 
         last = _safe_float(
             _info_get(info, "regularMarketPrice")
