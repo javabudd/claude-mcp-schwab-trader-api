@@ -104,9 +104,21 @@ docker compose run --rm traider auth schwab
 docker compose up -d
 ```
 
-The MCP endpoint is exposed at `http://localhost:8765/mcp`. Per-
-provider log files land in `./logs/` on the host
-(`schwab.log`, `fred.log`, …) plus an aggregated `traider.log`.
+The MCP endpoint is exposed at `https://localhost:8765/mcp` — the
+container always serves TLS. On first start the entrypoint mints a
+self-signed cert into `./certs/` (mounted at `/certs`) and reuses
+it on subsequent starts; deleting `certs/traider.pem` and
+`certs/traider-key.pem` forces a regen. Per-provider log files land
+in `./logs/` on the host (`schwab.log`, `fred.log`, …) plus an
+aggregated `traider.log`.
+
+The self-signed cert is fine for `curl -k` smoke tests, but any
+client that validates the chain (Claude Desktop, browsers, Claude
+Code without `--insecure`) will reject it. Drop a trusted pair into
+`./certs/` *before* `docker compose up` to skip the trust step —
+`mkcert -install && mkcert -key-file certs/traider-key.pem
+-cert-file certs/traider.pem localhost 127.0.0.1 ::1` is the easy
+path. The entrypoint reuses any existing pair instead of overwriting.
 
 Switch provider mix: edit `TRAIDER_PROVIDERS` in `.env`, then
 `docker compose restart`. No rebuild needed unless deps changed.
@@ -127,7 +139,17 @@ traider auth schwab
 traider --transport streamable-http --port 8765
 # or stdio:
 traider --transport stdio
+# or HTTPS (required for Claude Desktop's remote-MCP integration):
+traider --ssl-certfile ./certs/traider.pem \
+        --ssl-keyfile  ./certs/traider-key.pem
 ```
+
+Unlike the Docker image, host installs default to plain HTTP — pass
+`--ssl-certfile` / `--ssl-keyfile` together to terminate TLS. Both
+flags are required as a pair and are rejected with `--transport
+stdio`. When TLS is on, the loopback origin allowlist swaps to
+`https://...` automatically, so browser-style clients pass the
+DNS-rebinding middleware without an extra `--allow-origin`.
 
 The HTTP transport binds to `127.0.0.1` by default — the tool surface is
 unauthenticated, so loopback-only is the safe default. DNS-rebinding
@@ -151,11 +173,30 @@ working as intended.
 The server exposes a single MCP endpoint. Register it once; the tools
 available are whatever providers you enabled in `TRAIDER_PROVIDERS`.
 
+The examples below use `https://localhost:8765/mcp` — the Docker
+default. If you're running on the host without `--ssl-certfile`,
+swap `https` → `http` in the URL. Clients that validate the cert
+chain (which is most of them) need a trusted pair in `./certs/`
+rather than the auto-generated self-signed one — see the [Docker
+section](#with-docker-recommended) for the `mkcert` recipe.
+
+#### Claude Desktop
+
+Claude Desktop's remote-MCP integration only connects to `https://`
+URLs and validates the cert chain. With Docker:
+
+1. Generate a trusted cert (one-time per machine):
+   `mkcert -install && mkcert -key-file certs/traider-key.pem
+   -cert-file certs/traider.pem localhost 127.0.0.1 ::1`
+2. `docker compose up -d` — the entrypoint reuses your mkcert pair.
+3. In Claude Desktop, add a custom integration pointing at
+   `https://localhost:8765/mcp`.
+
 #### Claude Code
 
 ```bash
 # HTTP (Docker, or any streamable-http run):
-claude mcp add --transport http traider http://localhost:8765/mcp
+claude mcp add --transport http traider https://localhost:8765/mcp
 
 # Stdio (host install):
 claude mcp add --transport stdio traider -- traider --transport stdio
@@ -175,7 +216,7 @@ into `.mcp.json`. Verify with `claude mcp list`.
   "mcp": {
     "traider": {
       "type": "remote",
-      "url": "http://localhost:8765/mcp",
+      "url": "https://localhost:8765/mcp",
       "enabled": true
     }
   }
@@ -192,7 +233,7 @@ Stdio variant: `"type": "local", "command": ["traider", "--transport", "stdio"]`
 {
   "mcpServers": {
     "traider": {
-      "httpUrl": "http://localhost:8765/mcp"
+      "httpUrl": "https://localhost:8765/mcp"
     }
   }
 }
