@@ -73,6 +73,13 @@ services:
       # reload_rules() from the MCP after editing a rule. Comment
       # this line out if you want rules pinned to the image.
       - ./rules:/app/rules:ro
+      # TLS material for the streamable-http transport. The entrypoint
+      # mints a self-signed cert into this directory on first start
+      # and reuses it on every subsequent start. Drop in your own
+      # mkcert-issued (or otherwise trusted) pair as traider.pem /
+      # traider-key.pem to have Claude Desktop accept the chain
+      # without a manual trust step.
+      - ./certs:/certs
     ports:
       - "8765:8765"
     stdin_open: true

@@ -39,7 +39,14 @@ COPY src /app/src
 # container restarts without rebuilding the image).
 COPY rules /app/rules
 
+# Entrypoint mints a self-signed TLS cert on first start (into the
+# /certs volume) and execs traider with --ssl-certfile/--ssl-keyfile
+# attached. The container always serves HTTPS so Claude Desktop's
+# remote-MCP integration can connect.
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 8765
 
-ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "traider", "traider"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8765"]

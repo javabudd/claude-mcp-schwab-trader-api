@@ -267,6 +267,25 @@ Volume mounts:
 - `${HOME}/.schwab-connector:/tokens` — Schwab OAuth token file.
 - `./logs:/app/logs` — per-provider log files (host-visible).
 - `${HOME}/.cache/traider-factor:/cache` — Ken French ZIP cache.
+- `./certs:/certs` — TLS material for the streamable-http transport.
+
+The Docker image **always serves HTTPS**. On first `docker compose
+up`, `scripts/docker-entrypoint.sh` mints a self-signed cert into
+`/certs` (mounted from `./certs`) with SANs covering `localhost`,
+`127.0.0.1`, `::1`, and the in-network DNS name `traider`. The cert
+persists across container restarts; deleting `certs/traider.pem`
+and `certs/traider-key.pem` forces a regen on the next start.
+
+The self-signed cert is fine for `curl -k` smoke tests, but Claude
+Desktop validates the chain and will reject it. For Claude Desktop,
+drop a trusted pair into `./certs/` before bringing the container
+up — `mkcert -key-file certs/traider-key.pem -cert-file
+certs/traider.pem localhost 127.0.0.1 ::1` is the easy path. The
+entrypoint reuses any existing pair instead of overwriting it.
+
+`auth schwab` and other non-server subcommands skip the TLS-flag
+injection, so `docker compose run --rm traider auth schwab` still
+works against the interactive flow.
 
 ## Logging
 
